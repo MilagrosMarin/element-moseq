@@ -526,24 +526,15 @@ class MotionSequence(dj.Computed):
         MIN_FREQUENCY = 0.005
         GRID_SAMPLES = 4 * 6  # minimum rows * cols
         # Fetch base params
-        (
-            keypointset_dir,
-            inference_output_dir,
-            model_dir,
-            num_iterations,
-            task_mode,
-        ) = (InferenceTask * Model & key).fetch1(
-            "keypointset_dir",
+        (inference_output_dir, model_dir, num_iterations, task_mode,) = (
+            InferenceTask * Model & key
+        ).fetch1(
             "inference_output_dir",
             "model_dir",
             "num_iterations",
             "task_mode",
         )
-        kpms_root = moseq_train.get_kpms_root_data_dir()
         kpms_processed = moseq_train.get_kpms_processed_data_dir()
-
-        # Get the full paths
-        keypointset_dir = find_full_path(kpms_root, keypointset_dir)
 
         # Handle default inference_output_dir if not provided
         if not inference_output_dir:
