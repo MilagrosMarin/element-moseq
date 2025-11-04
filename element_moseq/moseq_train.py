@@ -789,6 +789,9 @@ class PreProcessingQA(dj.Computed):
 
         # Generate QA materials (plots and videos) for each recording
         qa_data = []
+
+        VIDEO_SAMPLE_DURATION_SECONDS = 6  # seconds of video to sample for QA
+
         for row in keypoint_videofile_metadata:
             video_id = int(row["video_id"])
             pose_estimation_path = row["pose_estimation_path"]
@@ -820,7 +823,7 @@ class PreProcessingQA(dj.Computed):
                 frame_rate = fps_lookup.get(
                     video_id, 30.0
                 )  # Default to 30fps if not found
-                frames_for_dur = int(frame_rate * 6)
+                frames_for_dur = int(frame_rate * VIDEO_SAMPLE_DURATION_SECONDS)
 
                 logger.info(
                     f"Processing video {video_id}: {frame_rate}fps -> {frames_for_dur} frames for 1min"
