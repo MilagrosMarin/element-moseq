@@ -341,16 +341,6 @@ def update_kpms_dj_config(
 
         cfg_dict.update(kwargs)
 
-        if config_path is not None:
-            with open(config_path, "w") as f:
-                yaml.safe_dump(
-                    cfg_dict,
-                    f,
-                    sort_keys=False,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                )
-
     return cfg_dict
 
 
