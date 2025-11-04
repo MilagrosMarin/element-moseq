@@ -85,23 +85,20 @@ def activate(
 
 
 def get_kpms_root_data_dir() -> list:
-    """Fetches absolute data path to kpms data directories.
+    """Fetches absolute data path to kpms data directory.
 
     The absolute path here is used as a reference for all downstream relative paths used in DataJoint.
 
     Returns:
-        A list of the absolute path(s) to kpms data directories.
+        A list of the absolute path to kpms data directory.
     """
 
     root_directories = _linking_module.get_kpms_root_data_dir()
     if isinstance(root_directories, (str, Path)):
         root_directories = [root_directories]
 
-    if (
-        hasattr(_linking_module, "get_kpms_processed_data_dir")
-        and get_kpms_processed_data_dir() not in root_directories
-    ):
-        root_directories.append(_linking_module.get_kpms_processed_data_dir())
+    if hasattr(_linking_module, "get_processed_root_data_dir"):
+        root_directories.append(_linking_module.get_processed_root_data_dir())
 
     return root_directories
 
@@ -109,13 +106,32 @@ def get_kpms_root_data_dir() -> list:
 def get_kpms_processed_data_dir() -> Optional[str]:
     """Retrieve the root directory for all processed data.
 
+    All data paths and directories in DataJoint Elements are recommended to be stored as
+    relative paths (posix format), with respect to some user-configured "root"
+    directory, which varies from machine to machine (e.g. different mounted drive
+    locations).
+
     Returns:
-        A string for the full path to the root directory for processed data.
+        dir (str| Path): Absolute path of the processed kpms root data
+            directory.
     """
+
     if hasattr(_linking_module, "get_kpms_processed_data_dir"):
         return _linking_module.get_kpms_processed_data_dir()
     else:
         return None
+
+
+def get_session_directory(session_key: dict) -> str:
+    """Pulls session directory information from database.
+
+    Args:
+        session_key (dict): a dictionary containing session information.
+
+    Returns:
+        Session directory as a string.
+    """
+    return _linking_module.get_session_directory(session_key)
 
 
 # ----------------------------- Table declarations ----------------------

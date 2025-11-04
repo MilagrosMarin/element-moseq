@@ -2,6 +2,7 @@ import os
 import datajoint as dj
 from collections import abc
 from element_lab import lab
+from pathlib import Path
 from element_animal import subject
 from element_session import session_with_datetime as session
 from element_moseq import moseq_train, moseq_infer, moseq_report
@@ -14,29 +15,27 @@ if "custom" not in dj.config:
 
 db_prefix = dj.config["custom"].get("database.prefix", "")
 
-
 # Declare functions for retrieving data
 def get_kpms_root_data_dir() -> list:
-    """Returns a list of root directories for Element Keypoint-MoSeq"""
-    kpms_root_dirs = dj.config.get("custom", {}).get("kpms_root_data_dir")
+    """Returns a list of root directories for Element DeepLabCut"""
+    kpms_root_dirs = dj.config.get("custom", {}).get("kpms_root_data_dir", None)
     if not kpms_root_dirs:
         return None
-    elif not isinstance(kpms_root_dirs, abc.Sequence):
-        return list(kpms_root_dirs)
-    else:
+    elif isinstance(kpms_root_dirs, (str, Path)):
+        return [kpms_root_dirs]
+    elif isinstance(kpms_root_dirs, list):
         return kpms_root_dirs
+    else:
+        raise TypeError("`kpms_root_data_dir` must be a string, pathlib, or list")
 
 
 def get_kpms_processed_data_dir() -> str:
     """Returns an output directory relative to custom 'kpms_output_dir' root"""
-    from pathlib import Path
-
     kpms_output_dir = dj.config.get("custom", {}).get("kpms_processed_data_dir")
     if kpms_output_dir:
         return Path(kpms_output_dir)
     else:
         return None
-
 
 __all__ = [
     "lab",
