@@ -1330,12 +1330,12 @@ class PreFit(dj.Computed):
             # Update the model hyperparameters
             model = update_hypparams(
                 model,
-                kappa=float(pre_kappa.item()),
-                latent_dim=int(pre_latent_dim.item()),
+                kappa=float(pre_kappa),
+                latent_dim=int(pre_latent_dim),
             )
             # Determine model directory name for outputs
             if model_name is None or not str(model_name).strip():
-                model_name = f"latent_dim_{pre_latent_dim.item()}_kappa_{pre_kappa.item()}_iters_{pre_num_iterations.item()}"
+                model_name = f"latent_dim_{int(pre_latent_dim)}_kappa_{float(pre_kappa)}_iters_{int(pre_num_iterations)}"
             else:
                 model_name = str(model_name)
 
