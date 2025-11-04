@@ -1617,7 +1617,6 @@ class FullFit(dj.Computed):
             # Determine model directory name for outputs
             if model_name is None or not str(model_name).strip():
                 model_name = f"latent_dim_{int(full_latent_dim)}_kappa_{float(full_kappa)}_iters_{int(full_num_iterations)}"
-
             else:
                 model_name = str(model_name)
 
@@ -1657,8 +1656,8 @@ class FullFit(dj.Computed):
                     # Update the model hyperparameters
                     model_to_fit = update_hypparams(
                         model_to_fit,
-                        kappa=float(full_kappa.item()),
-                        latent_dim=int(full_latent_dim.item()),
+                        kappa=float(full_kappa),
+                        latent_dim=int(full_latent_dim),
                     )
             except Exception as e:
                 raise ValueError(f"Model initialization failed: {e}")
