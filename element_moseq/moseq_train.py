@@ -1657,8 +1657,8 @@ class FullFit(dj.Computed):
                     # Update the model hyperparameters
                     model_to_fit = update_hypparams(
                         model_to_fit,
-                        kappa=float(full_kappa.item()),
-                        latent_dim=int(full_latent_dim.item()),
+                        kappa=float(full_kappa),
+                        latent_dim=int(full_latent_dim),
                     )
             except Exception as e:
                 raise ValueError(f"Model initialization failed: {e}")
