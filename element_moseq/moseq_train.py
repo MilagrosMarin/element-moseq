@@ -17,7 +17,6 @@ import jax_moseq
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import yaml
 from element_interface.utils import find_full_path
 
 # Configure JAX for better compatibility with DataJoint/DeepHash
