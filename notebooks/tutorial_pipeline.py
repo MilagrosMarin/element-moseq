@@ -15,6 +15,7 @@ if "custom" not in dj.config:
 
 db_prefix = dj.config["custom"].get("database.prefix", "")
 
+
 # Declare functions for retrieving data
 def get_kpms_root_data_dir() -> list:
     """Returns a list of root directories for Element DeepLabCut"""
@@ -36,6 +37,7 @@ def get_kpms_processed_data_dir() -> str:
         return Path(kpms_output_dir)
     else:
         return None
+
 
 __all__ = [
     "lab",
