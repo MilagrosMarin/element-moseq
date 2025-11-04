@@ -1616,7 +1616,8 @@ class FullFit(dj.Computed):
 
             # Determine model directory name for outputs
             if model_name is None or not str(model_name).strip():
-                model_name = f"latent_dim_{full_latent_dim.item()}_kappa_{full_kappa.item()}_iters_{full_num_iterations.item()}"
+                model_name = f"latent_dim_{int(full_latent_dim)}_kappa_{float(full_kappa)}_iters_{int(full_num_iterations)}"
+
             else:
                 model_name = str(model_name)
 
