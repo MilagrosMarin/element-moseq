@@ -239,7 +239,7 @@ class PCATask(dj.Manual):
     definition = """
     -> BodyParts                                            # Unique ID for each `BodyParts` key
     ---
-    outlier_scale_factor=6          : float                 # Scale factor for outlier detection in keypoint data (default: 6)
+    outlier_scale_factor=6.0        : float                 # Scale factor for outlier detection in keypoint data (default: 6.0)
     kpms_project_output_dir=''      : varchar(255)          # Optional. Keypoint-MoSeq project output directory, relative to root data directory
     task_mode='load'                :enum('load','trigger') # 'load' to load existing results, 'trigger' to compute new PCA
     """
