@@ -92,8 +92,8 @@ class Model(dj.Manual):
 
 
 @schema
-class VideoRecording(dj.Manual):
-    """Set of video recordings for the Keypoint-MoSeq inference.
+class RecordingSet(dj.Manual):
+    """Set of video recordings and pose estimation keypoint data and config file to use for the Keypoint-MoSeq inference.
 
     Attributes:
         Session (foreign key)               : `Session` key.
@@ -112,7 +112,7 @@ class VideoRecording(dj.Manual):
         """File IDs and paths associated with a given `recording_id`.
 
         Attributes:
-            VideoRecording (foreign key)   : `VideoRecording` key.
+            RecordingSet (foreign key)   : `RecordingSet` key.
             file_id(int)                   : Unique ID for each file.
             file_path (varchar)            : Filepath of each video, relative to root data directory.
         """
@@ -121,7 +121,7 @@ class VideoRecording(dj.Manual):
         -> master
         file_id: int                              # Unique ID for each file
         ---
-        file_path: varchar(1000) # Filepath of each video, relative to root data directory.
+        file_path: varchar(1000) # Filepath of each video, keypoint file, and config file, relative to root data directory.
         """
 
 
@@ -130,7 +130,7 @@ class InferenceTask(dj.Manual):
     """Staging table to define the Inference task and its output directory.
 
     Attributes:
-        VideoRecording (foreign key)         : `VideoRecording` key
+        RecordingSet (foreign key)         : `RecordingSet` key
         Model (foreign key)                  : `Model` key
         PoseEstimationMethod (foreign key)   : Pose estimation method used for the specified `recording_id`.
         inference_output_dir (varchar)       : Optional. Sub-directory where the results will be stored.
@@ -140,11 +140,11 @@ class InferenceTask(dj.Manual):
     """
 
     definition = """
-    -> VideoRecording                                       # `VideoRecording` key
+    -> RecordingSet                                         # `RecordingSet` key
     -> Model                                                # `Model` key
     ---
     -> moseq_train.PoseEstimationMethod                     # Pose estimation method used for the specified `recording_id`
-    keypointset_dir               : varchar(1000)           # Keypointset directory for the specified VideoRecording
+    keypointset_dir               : varchar(1000)           # Keypointset directory for the specified RecordingSet
     inference_output_dir=''       : varchar(1000)           # Optional. Sub-directory where the results will be stored
     inference_desc=''             : varchar(1000)           # Optional. User-defined description of the inference task
     num_iterations=NULL           : int                     # Optional. Number of iterations to use for the model inference. If null, the default number internally is 50.
@@ -159,7 +159,7 @@ class InferenceTask(dj.Manual):
         If inference_output_dir is empty, generates a default based on model and recording.
 
         Args:
-            key: DataJoint key specifying a pairing of VideoRecording and Model.
+            key: DataJoint key specifying a pairing of RecordingSet and Model.
             relative (bool): Report directory relative to processed data directory.
             mkdir (bool): Default False. Make directory if it doesn't exist.
         """
@@ -169,11 +169,32 @@ class InferenceTask(dj.Manual):
         )
         kpms_processed = moseq_train.get_kpms_processed_data_dir()
 
-        # Get recording info for default naming
-        recording_id = (VideoRecording & key).fetch1("recording_id")
+        # Build default output directory name based on RecordingSet and Session keys
 
-        # Generate default output directory name
-        default_output_dir = f"inference_recording_id_{recording_id}"
+        recording_set_key = (RecordingSet & key).fetch1("KEY")
+        recording_id = recording_set_key["recording_id"]
+        session_parts = []
+        for field_name, field_value in sorted(recording_set_key.items()):
+            if field_name != "recording_id":
+                # Format field values for directory name (handle datetime, strings, etc.)
+                if isinstance(field_value, datetime):
+                    # Format datetime as YYYYMMDD_HHMMSS for readability
+                    session_parts.append(
+                        f"{field_name}_{field_value.strftime('%Y%m%d_%H%M%S')}"
+                    )
+                else:
+                    session_parts.append(f"{field_name}_{field_value}")
+
+        # Create a unique directory name using all primary key components
+        # Format: inference_<session_fields>_recording_id_<recording_id>
+        # This ensures uniqueness within the same model_dir
+        if session_parts:
+            default_output_dir = (
+                f"inference_{'_'.join(session_parts)}_recording_id_{recording_id}"
+            )
+        else:
+            # Fallback if no session fields (shouldn't happen, but safety check)
+            default_output_dir = f"inference_recording_id_{recording_id}"
 
         if mkdir:
             # Create directory in the processed directory, not inside model directory
@@ -194,32 +215,37 @@ class Inference(dj.Computed):
     """
 
     definition = """
-    -> InferenceTask                         # `InferenceTask` key
+    -> InferenceTask                            # `InferenceTask` key
     ---
-    coordinates                     : longblob  # Cleaned coordinates dictionary after outlier removal.
-    confidences                     : longblob  # Cleaned confidences dictionary after outlier removal.
     average_frame_rate              : int       # Average frame rate of the videos for model training (used for kappa calculation).
+    coordinates_file                : filepath@moseq-infer-processed  # Cleaned coordinates dictionary after outlier removal.
+    confidences_file                : filepath@moseq-infer-processed  # Cleaned confidences dictionary after outlier removal.
     syllable_segmentation_file      : filepath@moseq-infer-processed    # File path of the syllable analysis results (HDF5 format) containing syllable labels, latent states, centroids, and headings
     inference_duration=NULL         : float     # Time duration (seconds) of the inference computation
     """
 
     def make_fetch(self, key):
 
-        (keypointset_dir, inference_output_dir, num_iterations, task_mode,) = (
-            InferenceTask & key
-        ).fetch1(
+        (
+            keypointset_dir,
+            inference_output_dir,
+            num_iterations,
+            task_mode,
+            pose_estimation_method,
+        ) = (InferenceTask & key).fetch1(
             "keypointset_dir",
             "inference_output_dir",
             "num_iterations",
             "task_mode",
+            "pose_estimation_method",
         )
 
+        # Compute default inference_output_dir if needed, but don't update database
+        # during fetch to avoid referential integrity issues
         if not inference_output_dir:
             inference_output_dir = InferenceTask.infer_output_dir(
                 key, relative=True, mkdir=True
             )
-            # Update the inference_output_dir in the database
-            InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
 
         model_dir_rel, model_file = (Model * moseq_train.SelectedFullFit & key).fetch1(
             "model_dir", "model_file"
@@ -241,6 +267,7 @@ class Inference(dj.Computed):
             inference_output_dir,
             num_iterations,
             task_mode,
+            pose_estimation_method,
             model_dir_rel,
             model_file,
             fullfit_checkpoint_path,
@@ -255,6 +282,7 @@ class Inference(dj.Computed):
         inference_output_dir,
         num_iterations,
         task_mode,
+        pose_estimation_method,
         model_dir_rel,
         model_file,
         fullfit_checkpoint_path,
@@ -284,27 +312,40 @@ class Inference(dj.Computed):
 
         start_time = datetime.now(timezone.utc)
 
+        original_inference_output_dir = (InferenceTask & key).fetch1(
+            "inference_output_dir"
+        )
+        if not original_inference_output_dir:
+            InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
+
         # Get directories for new recordings
         kpms_root = moseq_train.get_kpms_root_data_dir()
         kpms_processed = moseq_train.get_kpms_processed_data_dir()
 
-        # Construct the full path to the inference output directory
-        inference_output_dir = kpms_processed / model_dir_rel / inference_output_dir
+        inference_output_dir = (
+            Path(kpms_processed) / model_dir_rel / inference_output_dir
+        )
+        # Ensure directory exists
+        inference_output_dir.mkdir(parents=True, exist_ok=True)
+
         keypointset_dir = find_full_path(kpms_root, keypointset_dir)
 
         if task_mode == "trigger":
+            import jax_moseq
+
             # load saved model data
             fullfit_kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
                 config_path=fullfit_kpms_dj_config_file
             )
+            model_key = (Model * moseq_train.SelectedFullFit & key).fetch1("KEY")
+            use_bodyparts = (moseq_train.BodyParts & model_key).fetch1("use_bodyparts")
 
             # calculate average frame rate of all video in keypointset_dir
-            # Search for multiple common video extensions: mp4, avi, mov, mkv, etc.
+            # Search for multiple common video extensions: mp4, avi, mov, etc.
             video_extensions = [
                 "*.mp4",
                 "*.avi",
                 "*.mov",
-                "*.mkv",
                 "*.wmv",
                 "*.mpeg",
                 "*.mpg",
@@ -322,29 +363,56 @@ class Inference(dj.Computed):
             # Load fullfit model
             fullfit_model, _, _, _ = load_checkpoint(path=fullfit_checkpoint_path)
 
-            # Load new data
-            coordinates, confidences, bodyparts = load_keypoints(
-                filepath_pattern=keypointset_dir, format="deeplabcut"
+            # Format keypoint data - try .h5 first, fall back to .csv if not found
+            # Check which extension files exist in the directory
+            keypointset_path = Path(keypointset_dir)
+            h5_files = list(keypointset_path.glob("*.h5"))
+            csv_files = list(keypointset_path.glob("*.csv"))
+
+            if h5_files:
+                extension = ".h5"
+            elif csv_files:
+                extension = ".csv"
+                logger.warning(
+                    f"No .h5 files found in {keypointset_dir}, using .csv files instead"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"No keypoint files (.h5 or .csv) found in {keypointset_dir}"
+                )
+
+            coordinates, confidences, formatted_bodyparts = load_keypoints(
+                filepath_pattern=keypointset_dir,
+                format=pose_estimation_method,
+                extension=extension,
             )
+
             coordinates, confidences = outlier_removal(
-                coordinates,
-                confidences,
-                inference_output_dir,
+                coordinates=coordinates,
+                confidences=confidences,
+                project_dir=inference_output_dir.as_posix(),
+                bodyparts=formatted_bodyparts,
+                use_bodyparts=use_bodyparts,
                 overwrite=False,
-                **fullfit_kpms_dj_config_dict,
             )
+
             data, metadata = format_data(
-                coordinates, confidences, **fullfit_kpms_dj_config_dict
+                coordinates=coordinates,
+                confidences=confidences,
+                bodyparts=formatted_bodyparts,
+                use_bodyparts=use_bodyparts,
             )
+
+            data = jax_moseq.utils.debugging.convert_data_precision(data)
 
             # # apply saved model to new data
             results = apply_model(
                 model=fullfit_model,
                 data=data,
                 metadata=metadata,
-                project_dir=inference_output_dir,
+                project_dir=inference_output_dir.as_posix(),
                 model_name=inference_output_dir.name,
-                results_path=(inference_output_dir / "results.h5"),
+                results_path=(inference_output_dir / "results.h5").as_posix(),
                 return_model=False,
                 num_iters=num_iterations or DEFAULT_NUM_ITERS,
                 overwrite=True,
@@ -364,14 +432,22 @@ class Inference(dj.Computed):
         else:
             duration_seconds = None
 
+        # Save coordinates and confidences to file
+        coordinates_filepath = inference_output_dir / "coordinates.pkl"
+        confidences_filepath = inference_output_dir / "confidences.pkl"
+        with open(coordinates_filepath, "wb") as f:
+            pickle.dump(coordinates, f)
+        with open(confidences_filepath, "wb") as f:
+            pickle.dump(confidences, f)
+
         results_filepath = (inference_output_dir / "results.h5").as_posix()
 
         return (
             duration_seconds,
             results_filepath,
+            coordinates_filepath,
+            confidences_filepath,
             average_frame_rate,
-            coordinates,
-            confidences,
         )
 
     def make_insert(
@@ -379,9 +455,9 @@ class Inference(dj.Computed):
         key,
         duration_seconds,
         results_filepath,
+        coordinates_filepath,
+        confidences_filepath,
         average_frame_rate,
-        coordinates,
-        confidences,
     ):
         """
         Insert inference results into the database.
@@ -390,8 +466,8 @@ class Inference(dj.Computed):
             {
                 **key,
                 "syllable_segmentation_file": results_filepath,
-                "coordinates": coordinates,
-                "confidences": confidences,
+                "coordinates_file": coordinates_filepath,
+                "confidences_file": confidences_filepath,
                 "average_frame_rate": average_frame_rate,
                 "inference_duration": duration_seconds,
             }
@@ -413,7 +489,7 @@ class MotionSequence(dj.Computed):
 
         definition = """
         -> master
-        -> VideoRecording.File                              # Foreign key to VideoRecording.File
+        -> RecordingSet.File                              # Foreign key to RecordingSet.File
         ---
         syllables        : longblob                       # Syllable labels (z). The syllable label assigned to each frame (i.e. the state indexes assigned by the model)
         latent_states    : longblob                       # Inferred low-dim pose state (x). Low-dimensional representation of the animal's pose in each frame. These are similar to PCA scores, are modified to reflect the pose dynamics and noise estimates inferred by the model
@@ -480,19 +556,13 @@ class MotionSequence(dj.Computed):
         inference_output_dir = Path(model_dir) / inference_output_dir
         inference_output_dir = find_full_path(kpms_processed, inference_output_dir)
 
-        model_key = (Model * moseq_train.SelectedFullFit & key).fetch1("KEY")
-        coordinates, confidences = (moseq_train.PreProcessing & model_key).fetch(
-            "coordinates", "confidences"
-        )
+        coordinates_file = (Inference & key).fetch1("coordinates_file")
+        with open(coordinates_file, "rb") as f:
+            coordinates = pickle.load(f)
 
         results_file = (Inference & key).fetch1("syllable_segmentation_file")
 
-        file_ids, file_paths = (VideoRecording.File & key).fetch("file_id", "file_path")
-
-        video_name_to_file_id = {}
-        for file_id, file_path in zip(file_ids, file_paths):
-            base_video_name = Path(file_path).stem
-            video_name_to_file_id[base_video_name] = file_id
+        file_ids, file_paths = (RecordingSet.File & key).fetch("file_id", "file_path")
 
         with h5py.File(results_file, "r") as results:
             syllables = {k: np.array(v["syllable"]) for k, v in results.items()}
@@ -507,9 +577,10 @@ class MotionSequence(dj.Computed):
 
         motion_rows = []
         for vid in video_keys:
+            # Simple exact matching: video key must match file base name exactly
             matched_file_id = None
-            for base_video_name, file_id in video_name_to_file_id.items():
-                if vid.startswith(base_video_name):
+            for file_id, file_path in zip(file_ids, file_paths):
+                if vid == Path(file_path).stem:
                     matched_file_id = file_id
                     break
 

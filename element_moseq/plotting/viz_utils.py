@@ -281,24 +281,30 @@ def copy_pdf_to_png(project_dir, model_name):
     The fit_model function generates a single fitting_progress.pdf file.
 
     Args:
-        project_dir (Path): Project directory path
+        project_dir (str or Path): Project directory path (must be absolute)
         model_name (str): Model name directory
 
     """
     from pdf2image import convert_from_path
 
-    # Construct paths for PDF and PNG files
-    model_dir = Path(project_dir) / model_name
+    # Ensure project_dir is an absolute path
+    project_dir_path = Path(project_dir)
+    if not project_dir_path.is_absolute():
+        raise ValueError(f"project_dir must be an absolute path, got: {project_dir}")
+    model_dir = project_dir_path / model_name
     pdf_path = model_dir / "fitting_progress.pdf"
     png_path = model_dir / "fitting_progress.png"
 
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF progress plot not found at {pdf_path}")
 
+    # Convert PDF to images and save PNG to the model directory
     images = convert_from_path(str(pdf_path), dpi=300)
+
     if not images:
         raise ValueError(f"Could not convert PDF at {pdf_path} (no images returned)")
 
-    images[0].save(png_path, "PNG")
+    # Save PNG to the model directory (full absolute path)
+    images[0].save(str(png_path), "PNG")
     logger.info(f"Generated PNG progress plot at {png_path}")
     return png_path, pdf_path

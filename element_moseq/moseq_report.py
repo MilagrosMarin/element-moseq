@@ -4,6 +4,7 @@ DataJoint Schema for Keypoint-MoSeq reporting and visualization
 
 import importlib
 import inspect
+import pickle
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -151,7 +152,11 @@ class TrajectoryPlot(dj.Computed):
 
     def make(self, key):
         """Generate trajectory plots and grid movies."""
-        from keypoint_moseq import generate_grid_movies, generate_trajectory_plots
+        from keypoint_moseq import (
+            generate_grid_movies,
+            generate_trajectory_plots,
+            load_hdf5,
+        )
 
         start_time = datetime.now(timezone.utc)
 
@@ -160,6 +165,8 @@ class TrajectoryPlot(dj.Computed):
 
         # From trained model
         model_dir = (moseq_infer.Model & key).fetch1("model_dir")
+        model_dir = find_full_path(kpms_processed, model_dir)
+        model_dir = Path(model_dir)
         model_key = (moseq_infer.Model * moseq_train.SelectedFullFit & key).fetch1(
             "KEY"
         )
@@ -175,11 +182,14 @@ class TrajectoryPlot(dj.Computed):
         inference_output_dir = (moseq_infer.InferenceTask & key).fetch1(
             "inference_output_dir"
         )
-        coordinates = (moseq_infer.Inference & key).fetch1("coordinates")
+        coordinates_file = (moseq_infer.Inference & key).fetch1("coordinates_file")
+        with open(coordinates_file, "rb") as f:
+            coordinates = pickle.load(f)
         results_file = (moseq_infer.Inference & key).fetch1(
             "syllable_segmentation_file"
         )
-        results = h5py.File(results_file, "r")
+        # Use load_hdf5 instead of h5py.File
+        results = load_hdf5(results_file)
         fps = (moseq_infer.Inference & key).fetch1("average_frame_rate")
         kpset_dir = (moseq_infer.InferenceTask & key).fetch1("keypointset_dir")
         kpset_dir = find_full_path(kpms_root, kpset_dir)
@@ -211,12 +221,12 @@ class TrajectoryPlot(dj.Computed):
         # Generate grid movies
         generate_grid_movies(
             results=results,
-            video_path=kpset_dir,
+            video_dir=kpset_dir,
+            coordinates=coordinates,
             output_dir=grid_movies_dir.as_posix(),
             use_bodyparts=use_bodyparts,
-            fps=fps,
+            fps=float(fps),
             overlay_keypoints=True,
-            skeleton=kpms_dj_config_dict.get("skeleton", []),
         )
 
         # Calculate duration

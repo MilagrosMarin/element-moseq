@@ -13,6 +13,7 @@ from typing import Optional
 
 import cv2
 import datajoint as dj
+import jax_moseq
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -23,6 +24,11 @@ from element_interface.utils import find_full_path
 os.environ["JAX_ENABLE_X64"] = "False"
 os.environ["JAX_ARRAY"] = "False"  # Use legacy array API for better compatibility
 os.environ["JAX_DYNAMIC_SHAPES"] = "False"
+
+# Additional JAX configuration to ensure 32-bit precision
+import jax
+
+jax.config.update("jax_enable_x64", False)
 
 from .plotting import viz_utils
 from .readers import kpms_reader
@@ -390,7 +396,6 @@ class PreProcessing(dj.Computed):
         if task_mode == "trigger":
             from keypoint_moseq import setup_project
 
-            # Resolve kpms_project_output_dir to absolute and create it if needed
             if not kpms_project_output_dir:
                 kpms_project_output_dir = PCATask.infer_output_dir(
                     key, relative=True, mkdir=True
@@ -423,27 +428,31 @@ class PreProcessing(dj.Computed):
                 raise FileNotFoundError(
                     f"No config file (`config.yml` or `config.yaml`) found in {kpset_dir}"
                 )
-
             if pose_estimation_method == "deeplabcut":
                 setup_project(
                     project_dir=kpms_project_output_dir.as_posix(),
                     deeplabcut_config=pose_estimation_config_file.as_posix(),
-                    overwrite=True,  # Allow regenerating config if directory exists
                 )
             else:
                 raise NotImplementedError(
                     "Currently, `deeplabcut` is the only pose estimation method supported by this Element. Please reach out at `support@datajoint.com` if you use another method."
                 )
-        # task mode is load
-        else:
-            kpms_project_output_dir = find_full_path(
-                get_kpms_processed_data_dir(), kpms_project_output_dir
-            )
-            kpset_dir = find_full_path(get_kpms_root_data_dir(), kpset_dir)
+
+        kpset_dir = find_full_path(get_kpms_root_data_dir(), kpset_dir)
+        kpms_project_output_dir = find_full_path(
+            get_kpms_processed_data_dir(), kpms_project_output_dir
+        )
+        # Extract file extension from one of the video files in the keypoint set
+        extension = None
+        if keypoint_videofile_metadata:
+            first_video_path = keypoint_videofile_metadata[0]["pose_estimation_path"]
+            extension = Path(first_video_path).suffix
 
         # Format keypoint data
         raw_coordinates, raw_confidences, formatted_bodyparts = load_keypoints(
-            filepath_pattern=kpset_dir, format=pose_estimation_method
+            filepath_pattern=kpset_dir,
+            format=pose_estimation_method,
+            extension=extension,
         )
 
         # Confirm that `use_bodyparts` are a subset of `formatted_bodyparts`
@@ -480,47 +489,16 @@ class PreProcessing(dj.Computed):
                     f"expected {num_features}, got {actual_features}"
                 )
 
-        # Get frame rates and file sizes for each video
-        video_metadata_dict = dict()
-        frame_rates = []
-        for row in keypoint_videofile_metadata:
-            video_id = int(row["video_id"])
-            video_path = find_full_path(get_kpms_root_data_dir(), row["video_path"])
-
-            # Get file size in MB (rounded to 2 decimal places)
-            file_size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
-
-            # Get video properties
-            cap = cv2.VideoCapture(video_path.as_posix())
-            fps = float(cap.get(cv2.CAP_PROP_FPS))
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.release()
-            if fps <= 0:
-                raise ValueError(
-                    f"Invalid FPS ({fps}) for video_id {video_id} at {video_path}"
-                )
-            duration_minutes = int((frame_count / fps) / 60.0)
-            frame_rates.append(fps)
-            video_metadata_dict[video_id] = {
-                "video_duration": duration_minutes,
-                "frame_rate": fps,
-                "file_size": file_size_mb,
-                "outlier_plot": None,
-            }
-        average_frame_rate = int(round(np.mean(frame_rates)))
-
-        # Get all unique parent directories for all video files
-        parent_dirs = {
-            Path(video["video_path"]).parent for video in keypoint_videofile_metadata
-        }
-        # Check if there is only one unique parent
-        if len(parent_dirs) > 1:
-            raise ValueError(
-                f"Videos are located in multiple directories: {parent_dirs}. All videos must be in the same directory."
-            )
-        videos_dir = find_full_path(
-            get_kpms_root_data_dir(),
-            Path(keypoint_videofile_metadata[0]["video_path"]).parent,
+        # Extract video metadata and validate video directory
+        video_metadata_dict, average_frame_rate = kpms_reader.extract_video_metadata(
+            keypoint_videofile_metadata,
+            get_kpms_root_data_dir,
+            find_full_path,
+        )
+        videos_dir = kpms_reader.validate_video_directory(
+            keypoint_videofile_metadata,
+            get_kpms_root_data_dir,
+            find_full_path,
         )
 
         # Filter anterior/posterior to only include those present in use_bodyparts
@@ -822,6 +800,16 @@ class PreProcessingQA(dj.Computed):
 
             # Generate overlay video for this specific recording (skip if already exists)
             if not overlay_video_path.exists():
+                # Calculate frames for 1 minute of video
+                frame_rate = fps_lookup.get(
+                    video_id, 30.0
+                )  # Default to 30fps if not found
+                frames_for_dur = int(frame_rate * 6)
+
+                logger.info(
+                    f"Processing video {video_id}: {frame_rate}fps -> {frames_for_dur} frames for 1min"
+                )
+
                 overlay_keypoints_on_video(
                     video_path=video_file_path.as_posix(),
                     coordinates=coordinates[
@@ -830,6 +818,7 @@ class PreProcessingQA(dj.Computed):
                     skeleton=kpms_dj_config_dict["skeleton"],
                     bodyparts=list(use_bodyparts),
                     output_path=overlay_video_path.as_posix(),
+                    frames=range(frames_for_dur),
                 )
                 logger.info(f"Generated overlay video: {overlay_video_path}")
             else:
@@ -1284,21 +1273,21 @@ class PreFit(dj.Computed):
             coordinates, confidences = (PreProcessing & key).fetch1(
                 "coordinates", "confidences"
             )
-            data_path = (PCAFit.File & key & 'file_name="data.pkl"').fetch1("file_path")
-            metadata_path = (PCAFit.File & key & 'file_name="metadata.pkl"').fetch1(
-                "file_path"
+            use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+
+            data, metadata = format_data(
+                coordinates=coordinates,
+                confidences=confidences,
+                use_bodyparts=use_bodyparts,
             )
-            data = pickle.load(open(data_path, "rb"))
-            metadata = pickle.load(open(metadata_path, "rb"))
             average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
-            # Update kpms_dj_config file in disk with new latent_dim and kappa values
-            kpms_dj_config_dict_for_save = kpms_reader.load_kpms_dj_config(
+            kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
                 config_path=kpms_dj_config_abs_path, build_indexes=False
             )
             # Update and save config to disk
-            kpms_dj_config_dict_for_save = kpms_reader.update_kpms_dj_config(
-                config_dict=kpms_dj_config_dict_for_save,
+            _ = kpms_reader.update_kpms_dj_config(
+                config_dict=kpms_dj_config_dict,
                 config_path=kpms_dj_config_abs_path,
                 latent_dim=int(pre_latent_dim),
                 kappa=float(pre_kappa),
@@ -1313,10 +1302,12 @@ class PreFit(dj.Computed):
                 config_path=kpms_dj_config_abs_path, build_indexes=True
             )
 
-            # Initialize the model
+            data = jax_moseq.utils.debugging.convert_data_precision(data)
+
             model = init_model(
                 data=data, metadata=metadata, pca=pca, **kpms_dj_config_dict
             )
+
             # Update the model hyperparameters
             model = update_hypparams(
                 model,
@@ -1341,7 +1332,7 @@ class PreFit(dj.Computed):
                 ar_only=True,
                 num_iters=pre_num_iterations,
                 generate_progress_plots=True,  # saved to {project_dir}/{model_name}/plots/
-                save_every_n_iters=10,
+                save_every_n_iters=5,  # TODO: change to a higher value
             )
             # Create a PNG version fo the PDF progress plot
             png_path, pdf_path = viz_utils.copy_pdf_to_png(
@@ -1529,7 +1520,6 @@ class FullFit(dj.Computed):
         jax.config.update("jax_enable_x64", True)
 
         from keypoint_moseq import (
-            estimate_sigmasq_loc,
             fit_model,
             format_data,
             init_model,
@@ -1555,41 +1545,52 @@ class FullFit(dj.Computed):
         if task_mode == "trigger":
             import pickle
 
-            from keypoint_moseq import load_checkpoint
+            # Configure JAX precision
+            import jax
+            from keypoint_moseq import estimate_sigmasq_loc, load_checkpoint
 
+            jax.config.update("jax_enable_x64", True)
+
+            kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1(
+                "config_file"
+            )
+            kpms_dj_config_abs_path = find_full_path(
+                get_kpms_processed_data_dir(), kpms_dj_config_abs_path
+            )
             pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
             pca = load_pca(Path(pca_path).parent.as_posix())
             coordinates, confidences = (PreProcessing & key).fetch1(
                 "coordinates", "confidences"
             )
-            data_path = (PCAFit.File & key & 'file_name="data.pkl"').fetch1("file_path")
-            metadata_path = (PCAFit.File & key & 'file_name="metadata.pkl"').fetch1(
-                "file_path"
+            use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+
+            data, metadata = format_data(
+                coordinates=coordinates,
+                confidences=confidences,
+                use_bodyparts=use_bodyparts,
             )
-            data = pickle.load(open(data_path, "rb"))
-            metadata = pickle.load(open(metadata_path, "rb"))
             average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
-            kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1(
-                "config_file"
-            )
-
-            kpms_dj_config_dict_for_save = kpms_reader.load_kpms_dj_config(
+            kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
                 config_path=kpms_dj_config_abs_path, build_indexes=False
             )
+
             sigmasq_loc_val = float(
                 estimate_sigmasq_loc(
                     data["Y"], data["mask"], filter_size=average_frame_rate
                 )
             )
-            kpms_dj_config_dict_for_save = kpms_reader.update_kpms_dj_config(
-                config_dict=kpms_dj_config_dict_for_save,
-                config_path=kpms_dj_config_abs_path,
+
+            # Update and save config to disk
+            _ = kpms_reader.update_kpms_dj_config(
+                config_dict=kpms_dj_config_dict,
+                config_path=str(kpms_dj_config_abs_path),
                 latent_dim=int(full_latent_dim),
                 kappa=float(full_kappa),
                 sigmasq_loc=sigmasq_loc_val,
             )
 
+            # Load config with indexes for model initialization
             kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
                 config_path=kpms_dj_config_abs_path, build_indexes=True
             )
@@ -1613,21 +1614,22 @@ class FullFit(dj.Computed):
             )
             if pre_model_key_query:
                 pre_model_key = pre_model_key_query.fetch1("KEY")
-                pre_model_file = (
-                    PreFit.File & pre_model_key & 'file_name="checkpoint.h5"'
+                pre_model = (
+                    PreFit.File & pre_model_key & 'file_name="model_data.pkl"'
                 ).fetch1("file_path")
-                pre_model, data, metadata, _ = load_checkpoint(path=pre_model_file)
                 logger.info(
                     f"Using PreFit model {pre_model_key} as warm start for FullFit"
                 )
 
             execution_time = datetime.now(timezone.utc)
 
-            # Initialize model: Use PreFit if available, otherwise initialize fresh
             try:
+                # Initialize model: Use PreFit if available, otherwise initialize fresh
                 if pre_model is not None:
                     model_to_fit = pre_model
                 else:
+                    data = jax_moseq.utils.debugging.convert_data_precision(data)
+
                     # Only initialize fresh model if no PreFit available
                     model_to_fit = init_model(
                         data=data, metadata=metadata, pca=pca, **kpms_dj_config_dict
@@ -1652,7 +1654,7 @@ class FullFit(dj.Computed):
                     ar_only=False,
                     num_iters=full_num_iterations,
                     generate_progress_plots=True,
-                    save_every_n_iters=1,  # TODO: to change to a higher value
+                    save_every_n_iters=5,  # TODO: to change to a higher value
                     verbose=False,
                 )
             except Exception as e:
@@ -1690,9 +1692,6 @@ class FullFit(dj.Computed):
             png_path = model_name_full_path / "fitting_progress.png"
 
         # Get the path to the updated config file
-        kpms_dj_config_abs_path = kpms_reader._kpms_dj_config_path(
-            kpms_project_output_dir
-        )
         if not pdf_path.exists():
             raise FileNotFoundError(f"PreFit PDF progress plot not found at {pdf_path}")
         if not png_path.exists():

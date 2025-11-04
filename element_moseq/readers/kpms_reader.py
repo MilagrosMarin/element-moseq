@@ -1,8 +1,11 @@
 import os
+import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
+import cv2
 import datajoint as dj
+import numpy as np
 import yaml
 
 logger = dj.logger
@@ -254,20 +257,24 @@ def update_kpms_dj_config(
     Args:
         kpms_project_dir: KPMS project output directory containing kpms_dj_config.yml (optional)
         config_dict: Existing config dictionary to update (optional)
+        config_path: Direct path to config file to update (optional)
         **kwargs: Key-value pairs to update in the config
 
     Returns:
         Updated configuration dictionary
 
     Raises:
-        ValueError: If neither or both kpms_project_dir and config_dict are provided
+        ValueError: If neither kpms_project_dir, config_dict, nor config_path are provided
 
     If kpms_project_dir is provided, loads the config from file, updates it, saves it back, and returns it.
     If config_dict is provided, updates it directly and returns it (no file I/O).
+    If config_path is provided, loads from that path, updates it, saves it back, and returns it.
     """
 
-    if kpms_project_dir is None and config_dict is None:
-        raise ValueError("Either 'kpms_project_dir' or 'config_dict' must be provided")
+    if kpms_project_dir is None and config_dict is None and config_path is None:
+        raise ValueError(
+            "Either 'kpms_project_dir', 'config_dict', or 'config_path' must be provided"
+        )
 
     if kpms_project_dir is not None:
         kpms_dj_cfg_path = _kpms_dj_config_path(kpms_project_dir)
@@ -288,6 +295,32 @@ def update_kpms_dj_config(
         cfg_dict.update(kwargs)
 
         with open(kpms_dj_cfg_path, "w") as f:
+            yaml.safe_dump(
+                cfg_dict,
+                f,
+                sort_keys=False,
+                default_flow_style=False,
+                allow_unicode=True,
+            )
+    elif config_path is not None:
+        # Handle direct config_path
+        if not Path(config_path).exists():
+            raise FileNotFoundError(f"Missing config file at {config_path}")
+
+        with open(config_path, "r") as f:
+            cfg_dict = yaml.safe_load(f) or {}
+
+        if "bodyparts" in kwargs:
+            cfg_dict["bodyparts"] = list(kwargs.get("bodyparts"))
+
+        if "use_bodyparts" in kwargs:
+            use_bodyparts = list(kwargs.get("use_bodyparts"))
+            cfg_dict["use_bodyparts"] = use_bodyparts
+            # NOTE: skeleton is NOT modified - it remains from the base config
+
+        cfg_dict.update(kwargs)
+
+        with open(config_path, "w") as f:
             yaml.safe_dump(
                 cfg_dict,
                 f,
@@ -319,3 +352,176 @@ def update_kpms_dj_config(
                 )
 
     return cfg_dict
+
+
+def extract_video_metadata(
+    keypoint_videofile_metadata: List[Dict[str, Any]],
+    get_kpms_root_data_dir,
+    find_full_path,
+) -> Tuple[Dict[int, Dict[str, Any]], int]:
+    """
+    Extract metadata (frame rate, file size, duration) for all videos and calculate average frame rate.
+
+    Args:
+        keypoint_videofile_metadata: List of dictionaries containing video metadata with
+            'video_id' and 'video_path' keys
+        get_kpms_root_data_dir: Function to get root data directory
+        find_full_path: Function to resolve full paths
+
+    Returns:
+        Tuple of (video_metadata_dict, average_frame_rate) where:
+            - video_metadata_dict: Dict mapping video_id to metadata dict with keys:
+                - video_duration: Duration in minutes
+                - frame_rate: Frame rate in fps
+                - file_size: File size in MB
+                - outlier_plot: None (placeholder for future use)
+            - average_frame_rate: Average frame rate across all videos (int)
+
+    Raises:
+        ValueError: If no video files found or if video cannot be opened
+    """
+    if not keypoint_videofile_metadata:
+        raise ValueError("No video files found in keypoint_videofile_metadata")
+
+    video_metadata_dict = {}
+    frame_rates = []
+
+    for row in keypoint_videofile_metadata:
+        video_id = int(row["video_id"])
+        video_path = find_full_path(get_kpms_root_data_dir(), row["video_path"])
+
+        # Get file size in MB (rounded to 2 decimal places)
+        file_size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
+
+        # Get video properties
+        cap = cv2.VideoCapture(video_path.as_posix())
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video {video_id} at {video_path}")
+
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+
+        # FPS validation and fallback
+        if np.isnan(fps) or fps <= 0:
+            logger.warning(
+                f"Invalid FPS ({fps}) for video_id {video_id} at {video_path}"
+            )
+            logger.info("Attempting to extract FPS from video metadata...")
+
+            # Try alternative method using ffprobe
+            try:
+                result = subprocess.run(
+                    [
+                        "ffprobe",
+                        "-v",
+                        "quiet",
+                        "-select_streams",
+                        "v:0",
+                        "-show_entries",
+                        "stream=r_frame_rate",
+                        "-of",
+                        "csv=p=0",
+                        str(video_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+
+                if result.returncode == 0 and result.stdout.strip():
+                    fps_str = result.stdout.strip()
+                    if "/" in fps_str:
+                        num, den = fps_str.split("/")
+                        fps = float(num) / float(den)
+                    else:
+                        fps = float(fps_str)
+                    logger.info(f"Successfully extracted FPS using ffprobe: {fps}")
+                else:
+                    logger.warning("ffprobe failed, using default FPS")
+                    fps = 30.0  # Default fallback
+            except Exception as e:
+                logger.warning(f"ffprobe failed: {e}, using default FPS")
+                fps = 30.0  # Default fallback
+
+            # Final validation after fallback attempts
+            if np.isnan(fps) or fps <= 0:
+                fps = 30.0  # Final fallback
+                logger.warning(f"Using default FPS (30.0) for video_id {video_id}")
+
+        # Calculate duration
+        if frame_count > 0 and not np.isnan(frame_count):
+            duration_minutes = int((frame_count / fps) / 60.0)
+        else:
+            duration_minutes = 0  # Unknown duration
+            logger.warning(f"Could not determine frame count for video_id {video_id}")
+
+        frame_rates.append(fps)
+        video_metadata_dict[video_id] = {
+            "video_duration": duration_minutes,
+            "frame_rate": fps,
+            "file_size": file_size_mb,
+            "outlier_plot": None,
+        }
+
+    # Calculate average frame rate
+    if len(frame_rates) > 0:
+        # Remove any NaN or invalid values
+        valid_frame_rates = [
+            fps for fps in frame_rates if not np.isnan(fps) and fps > 0
+        ]
+
+        if len(valid_frame_rates) > 0:
+            average_frame_rate = int(round(np.mean(valid_frame_rates)))
+            logger.info(
+                f"Calculated average frame rate: {average_frame_rate} fps from {len(valid_frame_rates)} videos"
+            )
+        else:
+            average_frame_rate = 30  # Default fallback
+            logger.warning("No valid frame rates found, using default value of 30 fps")
+    else:
+        average_frame_rate = 30  # Default fallback
+        logger.warning("No frame rates found, using default value of 30 fps")
+
+    return video_metadata_dict, average_frame_rate
+
+
+def validate_video_directory(
+    keypoint_videofile_metadata: List[Dict[str, Any]],
+    get_kpms_root_data_dir,
+    find_full_path,
+) -> Path:
+    """
+    Validate that all videos are in the same directory and return the directory path.
+
+    Args:
+        keypoint_videofile_metadata: List of dictionaries containing video metadata with
+            'video_path' keys
+        get_kpms_root_data_dir: Function to get root data directory
+        find_full_path: Function to resolve full paths
+
+    Returns:
+        Path to the videos directory (absolute path)
+
+    Raises:
+        ValueError: If videos are in multiple directories or no videos found
+    """
+    if not keypoint_videofile_metadata:
+        raise ValueError("No video files found in keypoint_videofile_metadata")
+
+    # Get all unique parent directories for all video files
+    parent_dirs = {
+        Path(video["video_path"]).parent for video in keypoint_videofile_metadata
+    }
+    # Check if there is only one unique parent
+    if len(parent_dirs) > 1:
+        raise ValueError(
+            f"Videos are located in multiple directories: {parent_dirs}. All videos must be in the same directory."
+        )
+
+    videos_dir = find_full_path(
+        get_kpms_root_data_dir(),
+        Path(keypoint_videofile_metadata[0]["video_path"]).parent,
+    )
+
+    return videos_dir
