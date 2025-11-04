@@ -123,7 +123,7 @@ class BehavioralSummary(dj.Computed):
                 "similarity_dendrogram_png": inference_output_dir
                 / "similarity_dendrogram.png",
                 "similarity_dendrogram_pdf": inference_output_dir
-                / "similarity_dendrogram.png",  # Same file for now
+                / "similarity_dendrogram.pdf",
             }
         )
 
