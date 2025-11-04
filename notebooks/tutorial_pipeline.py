@@ -17,7 +17,7 @@ db_prefix = dj.config["custom"].get("database.prefix", "")
 
 
 # Declare functions for retrieving data
-def get_kpms_root_data_dir() -> list:
+    """Returns a list of root directories for Element Keypoint-MoSeq"""
     """Returns a list of root directories for Element DeepLabCut"""
     kpms_root_dirs = dj.config.get("custom", {}).get("kpms_root_data_dir", None)
     if not kpms_root_dirs:
