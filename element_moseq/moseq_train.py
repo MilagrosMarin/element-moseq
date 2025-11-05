@@ -84,53 +84,37 @@ def activate(
 
 
 def get_kpms_root_data_dir() -> list:
-    """Fetches absolute data path to kpms data directory.
+    """Pulls relevant func from parent namespace to specify root data dir(s).
 
-    The absolute path here is used as a reference for all downstream relative paths used in DataJoint.
-
-    Returns:
-        A list of the absolute path to kpms data directory.
+    It is recommended that all paths in DataJoint Elements stored as relative
+    paths, with respect to some user-configured "root" director(y/ies). The
+    root(s) may vary between data modalities and user machines. Returns a full path
+    string or list of strings for possible root data directories.
     """
-
     root_directories = _linking_module.get_kpms_root_data_dir()
     if isinstance(root_directories, (str, Path)):
         root_directories = [root_directories]
 
-    if hasattr(_linking_module, "get_processed_root_data_dir"):
+    if (
+        hasattr(_linking_module, "get_processed_root_data_dir")
+        and get_kpms_processed_data_dir() not in root_directories
+    ):
         root_directories.append(_linking_module.get_processed_root_data_dir())
 
     return root_directories
 
 
-def get_kpms_processed_data_dir() -> Optional[str]:
-    """Retrieve the root directory for all processed data.
+def get_kpms_processed_data_dir() -> str:
+    """Pulls relevant func from parent namespace.
 
-    All data paths and directories in DataJoint Elements are recommended to be stored as
-    relative paths (posix format), with respect to some user-configured "root"
-    directory, which varies from machine to machine (e.g. different mounted drive
-    locations).
-
-    Returns:
-        dir (str| Path): Absolute path of the processed kpms root data
-            directory.
+    Method in parent namespace should provide a string to a directory where KPMS output
+    files will be stored.
     """
 
     if hasattr(_linking_module, "get_kpms_processed_data_dir"):
         return _linking_module.get_kpms_processed_data_dir()
     else:
-        return None
-
-
-def get_session_directory(session_key: dict) -> str:
-    """Pulls session directory information from database.
-
-    Args:
-        session_key (dict): a dictionary containing session information.
-
-    Returns:
-        Session directory as a string.
-    """
-    return _linking_module.get_session_directory(session_key)
+        return get_kpms_root_data_dir()[0]
 
 
 # ----------------------------- Table declarations ----------------------
@@ -164,7 +148,7 @@ class PoseEstimationMethod(dj.Lookup):
 
 @schema
 class KeypointSet(dj.Manual):
-    """Store the keypoint data and the video set directory for model training.
+    """Collection of keypoint data and videos for model training.
 
     Attributes:
         kpset_id (int)                          : Unique ID for each keypoint set.
