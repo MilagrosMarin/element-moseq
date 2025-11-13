@@ -1,7 +1,6 @@
-# ---- Modified version of the viz functions from the main branch of keypoint_moseq  ----
-
 import os
 import re
+import tempfile
 from difflib import SequenceMatcher
 from pathlib import Path
 from textwrap import fill
@@ -10,10 +9,83 @@ from typing import Dict, List, Optional, Tuple
 import datajoint as dj
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 logger = dj.logger
 
 
+# Constants used for syllable filtering (shared between MotionSequence and TrajectoryPlot)
+# Values match keypoint-moseq defaults: https://github.com/dattalab/keypoint-moseq
+MIN_DURATION = 3  # Minimum duration in frames
+MIN_FREQUENCY = 0.005  # Minimum frequency as fraction (0.5% of total instances)
+
+
+def extract_base_video_key(video_key: str) -> str:
+    """Extract base video name from video key (removes DLC suffix if present).
+
+    Args:
+        video_key: Video key from results.h5 (may include DLC suffix, e.g. '21_11_8_one_mouseDLC_resnet50_OFT_FPApr14shuffle1_100000')
+
+    Returns:
+        Base video key (name before "DLC" suffix if present, otherwise original key, e.g. '21_11_8_one_mouse')
+    """
+    if "DLC" in video_key:
+        return video_key.split("DLC")[0]
+    return video_key
+
+
+def match_video_keys_to_file_paths(video_keys, file_ids, file_paths, video_only=False):
+    """Match video keys from results.h5 to file paths from RecordingSet.File.
+
+    Args:
+        video_keys: List of video keys from results.h5 (e.g., ['video1', 'video2'])
+        file_ids: List of file_ids corresponding to file_paths
+        file_paths: List of file paths from RecordingSet.File
+        video_only: If True, filter to only video file extensions
+
+    Returns:
+        dict: Mapping of video_key -> (file_id, file_path) for matched videos
+    """
+    if video_only:
+        video_extensions = {
+            ".mp4",
+            ".avi",
+            ".mov",
+            ".mkv",
+            ".wmv",
+            ".flv",
+            ".webm",
+            ".mpeg",
+            ".mpg",
+        }
+        filtered_indices = [
+            i
+            for i, fp in enumerate(file_paths)
+            if Path(fp).suffix.lower() in video_extensions
+        ]
+        file_ids = [file_ids[i] for i in filtered_indices]
+        file_paths = [file_paths[i] for i in filtered_indices]
+
+    matched = {}
+    for vid_key in video_keys:
+        base_video_key = extract_base_video_key(vid_key)
+
+        for file_id, file_path in zip(file_ids, file_paths):
+            file_stem = Path(file_path).stem
+            # Try exact match first, then base name match
+            if (
+                vid_key == file_stem
+                or vid_key.lower() == file_stem.lower()
+                or base_video_key == file_stem
+                or base_video_key.lower() == file_stem.lower()
+            ):
+                matched[vid_key] = (file_id, file_path)
+                break
+
+    return matched
+
+
+# ---- Modified version of the viz function from the main branch of keypoint_moseq  ----
 def plot_medoid_distance_outliers(
     project_dir: str,
     recording_name: str,
@@ -104,6 +176,7 @@ def plot_medoid_distance_outliers(
     return fig, plot_path
 
 
+# ---- Modified version of the viz function from the main branch of keypoint_moseq  ----
 def plot_pcs(
     pca,
     *,
@@ -278,7 +351,6 @@ def plot_pcs(
 def copy_pdf_to_png(project_dir, model_name):
     """
     Convert PDF progress plot to PNG format using pdf2image.
-    The fit_model function generates a single fitting_progress.pdf file.
 
     Args:
         project_dir (str or Path): Project directory path (must be absolute)
@@ -308,3 +380,91 @@ def copy_pdf_to_png(project_dir, model_name):
     images[0].save(str(png_path), "PNG")
     logger.info(f"Generated PNG progress plot at {png_path}")
     return png_path, pdf_path
+
+
+# ---- Modified version of the viz function from the main branch of keypoint_moseq  ----
+def plot_nan_breakdown(
+    coordinates: Dict[str, np.ndarray], use_bodyparts: List[str]
+) -> str:
+    """Create a PNG visualization of NaN proportion breakdown by recording and bodypart.
+
+    Replicates keypoint-moseq's `check_nan_proportions` logic
+
+    Generates a color-coded table showing the proportion of NaN values for each
+    recording and bodypart combination. The table uses a color gradient (RdYlBu_r)
+    where red indicates high NaN proportions and blue indicates low NaN proportions.
+
+    Parameters
+    ----------
+    coordinates : dict
+        Dictionary mapping recording names to coordinate arrays of shape
+        (n_frames, n_bodyparts, 2).
+    use_bodyparts : list of str
+        List of bodypart names corresponding to the columns in the coordinate arrays.
+
+    Returns
+    -------
+    str
+        Path to the temporary PNG file containing the visualization.
+    """
+    # Calculate NaN proportions breakdown for each recording and bodypart
+    keys = sorted(coordinates.keys())
+    nan_props = [np.isnan(coordinates[k]).any(-1).mean(0) for k in keys]
+
+    # Create the DataFrame for visualization
+    nan_df = pd.DataFrame(data=nan_props, index=keys, columns=use_bodyparts)
+
+    # Create matplotlib figure with table
+    fig, ax = plt.subplots(
+        figsize=(max(12, len(use_bodyparts) * 1.5), max(8, len(keys) * 0.5))
+    )
+    ax.axis("tight")
+    ax.axis("off")
+
+    # Format values as percentages for display
+    nan_df_display = nan_df.applymap(lambda x: f"{x:.1%}")
+
+    # Create table with color gradient based on NaN proportions
+    table = ax.table(
+        cellText=nan_df_display.values,
+        rowLabels=nan_df.index,
+        colLabels=nan_df.columns,
+        cellLoc="center",
+        loc="center",
+    )
+
+    # Style the table
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 2)
+
+    # Apply color gradient to cells based on NaN proportions
+    for i in range(len(nan_df.index)):
+        for j in range(len(nan_df.columns)):
+            value = nan_df.iloc[i, j]
+            # Normalize value to [0, 1] for colormap
+            normalized_value = min(max(value, 0), 1)
+            # Use RdYlBu_r colormap (red for high NaN, blue for low NaN)
+            color = plt.cm.RdYlBu_r(normalized_value)
+            table[(i + 1, j)].set_facecolor(color)
+            table[(i + 1, j)].set_text_props(weight="bold" if value > 0.5 else "normal")
+
+    # Style header row
+    for j in range(len(nan_df.columns)):
+        table[(0, j)].set_facecolor("#F2F2F2")
+        table[(0, j)].set_text_props(weight="bold", color="#222")
+
+    # Style row labels
+    for i in range(len(nan_df.index)):
+        table[(i + 1, -1)].set_facecolor("#F2F2F2")
+        table[(i + 1, -1)].set_text_props(weight="bold")
+
+    plt.title("NaN Proportion Breakdown", fontsize=14, fontweight="bold", pad=20)
+
+    # Save PNG to temporary file for DataJoint attach
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        nan_png_path = f.name
+    plt.savefig(nan_png_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    return nan_png_path
