@@ -468,3 +468,86 @@ def plot_nan_breakdown(
     plt.close(fig)
 
     return nan_png_path
+
+
+def extract_syllable_id_from_filename(filename):
+    """Extract syllable ID from filename.
+
+    Args:
+        filename (Path): File path object.
+
+    Returns:
+        int or None: Syllable ID if extractable, None otherwise.
+    """
+    try:
+        stem = filename.stem
+        if "syllable" in stem.lower():
+            return int(
+                stem.lower().replace("syllable", "").replace("_", "").replace("-", "")
+            )
+        elif stem.isdigit():
+            return int(stem)
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def find_trajectory_files(directory, extension, exclude_name=None):
+    """Find trajectory plot files (GIF or PDF) in directory.
+
+    Args:
+        directory (Path): Directory to search.
+        extension (str): File extension to search for ('.gif' or '.pdf').
+        exclude_name (str): Filename to exclude from results.
+
+    Returns:
+        tuple: (set of syllable IDs, dict mapping syllable_id to file path)
+    """
+    directory = Path(directory)
+    if not directory.exists():
+        return set(), {}
+
+    pattern = f"syllable*{extension}"
+    files = list(directory.rglob(pattern))
+
+    if not files:
+        alt_pattern = f"*{extension}"
+        alt_files = [
+            f
+            for f in directory.rglob(alt_pattern)
+            if ("syllable" in f.name.lower() or f.stem.isdigit())
+            and (exclude_name is None or f.name != exclude_name)
+        ]
+        if alt_files:
+            logger.info(
+                f"Using alternative {extension} pattern, found {len(alt_files)} files"
+            )
+            files = alt_files
+
+    syllable_ids = set()
+    file_paths = {}
+    for f in files:
+        syllable_id = extract_syllable_id_from_filename(f)
+        if syllable_id is not None:
+            syllable_ids.add(syllable_id)
+            file_paths[syllable_id] = f
+
+    return syllable_ids, file_paths
+
+
+def find_grid_movie_files(directory):
+    """Find grid movie MP4 files in directory.
+
+    Args:
+        directory (Path): Directory to search.
+
+    Returns:
+        tuple: (set of syllable IDs, dict mapping syllable_id to file path)
+    """
+    directory = Path(directory)
+    files = list(directory.rglob("syllable*.mp4"))
+
+    syllable_ids = {int(f.stem.replace("syllable", "")) for f in files}
+    file_paths = {int(f.stem.replace("syllable", "")): f for f in files}
+
+    return syllable_ids, file_paths

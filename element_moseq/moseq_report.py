@@ -15,7 +15,15 @@ from element_interface.utils import find_full_path
 from matplotlib import pyplot as plt
 
 from . import moseq_infer, moseq_train
+from .plotting.viz_utils import (
+    MIN_DURATION,
+    MIN_FREQUENCY,
+    extract_syllable_id_from_filename,
+    find_grid_movie_files,
+    find_trajectory_files,
+)
 from .readers import kpms_reader
+from .readers.kpms_reader import build_video_paths_dict
 
 schema = dj.schema()
 _linking_module = None
@@ -61,7 +69,14 @@ def activate(
 
 @schema
 class BehavioralSummary(dj.Computed):
-    """Generate and store behavioral analysis visualizations from Keypoint-MoSeq inference."""
+    """Generate and store behavioral analysis visualizations from Keypoint-MoSeq inference.
+
+    Attributes:
+        Inference (foreign key)              : `Inference` key.
+        syllable_frequencies_plot (attach)   : File path of the syllable frequencies plot.
+        similarity_dendrogram_png (attach)   : File path of the similarity dendrogram plot (PNG).
+        similarity_dendrogram_pdf (attach)   : File path of the similarity dendrogram plot (PDF).
+    """
 
     definition = """
     -> moseq_infer.Inference
@@ -72,6 +87,16 @@ class BehavioralSummary(dj.Computed):
     """
 
     def make(self, key):
+        """Generate behavioral summary visualizations.
+
+        High-Level Logic:
+        1. Fetch model directory and inference output directory.
+        2. Load inference results from HDF5 file.
+        3. Generate syllable frequencies plot and save as PNG.
+        4. Fetch model training data (coordinates, bodyparts, frame rate).
+        5. Generate similarity dendrogram plots (PNG and PDF).
+        6. Insert visualization file paths into database.
+        """
 
         from keypoint_moseq import (
             format_data,
@@ -130,10 +155,17 @@ class BehavioralSummary(dj.Computed):
 
 @schema
 class TrajectoryPlot(dj.Computed):
-    """Generate per-syllable trajectory plots and grid movies for behavioral syllable analysis."""
+    """Generate per-syllable trajectory plots and grid movies for behavioral syllable analysis.
+
+    Attributes:
+        MotionSequence (foreign key)        : `MotionSequence` key.
+        all_trajectories_gif (attach)       : File path of the all trajectories GIF plot.
+        all_trajectories_pdf (attach)       : File path of the all trajectories PDF plot.
+        traj_duration (float)               : Time duration (seconds) of trajectory plot generation.
+    """
 
     definition = """
-    -> moseq_infer.Inference
+    -> moseq_infer.MotionSequence
     ---
     all_trajectories_gif        : attach # File path of the all trajectories GIF plot
     all_trajectories_pdf        : attach # File path of the all trajectories PDF plot
@@ -141,6 +173,16 @@ class TrajectoryPlot(dj.Computed):
     """
 
     class Syllable(dj.Part):
+        """Store per-syllable trajectory plots and grid movies.
+
+        Attributes:
+            TrajectoryPlot (foreign key)    : `TrajectoryPlot` key.
+            syllable_id (int)               : Syllable ID.
+            plot_gif (attach)               : GIF plot file for this syllable.
+            plot_pdf (attach)               : PDF plot file for this syllable.
+            grid_movie (attach)             : Grid movie file for this syllable.
+        """
+
         definition = """
         -> master
         syllable_id: int # Syllable ID
@@ -150,16 +192,17 @@ class TrajectoryPlot(dj.Computed):
         grid_movie: attach # Grid movie file
         """
 
-    def make(self, key):
-        """Generate trajectory plots and grid movies."""
-        from keypoint_moseq import (
-            generate_grid_movies,
-            generate_trajectory_plots,
-            load_hdf5,
-        )
+    def make_fetch(self, key):
+        """Fetch data from upstream tables.
 
-        start_time = datetime.now(timezone.utc)
-
+        High-Level Logic:
+        1. Fetch model information (model_dir, model_key, use_bodyparts, config).
+        2. Fetch inference data (output_dir, coordinates_file, results_file, fps).
+        3. Join MotionSequence.VideoSequence with RecordingSet.File to get video file paths.
+        4. Fetch keypointset_dir as fallback for grid movie generation.
+        5. Construct output directory path.
+        6. Return all fetched data for use in make_compute.
+        """
         kpms_processed = moseq_train.get_kpms_processed_data_dir()
         kpms_root = moseq_train.get_kpms_root_data_dir()
 
@@ -174,31 +217,102 @@ class TrajectoryPlot(dj.Computed):
         kpms_dj_config_path = (moseq_train.FullFit.ConfigFile & model_key).fetch1(
             "config_file"
         )
-        kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
-            config_path=kpms_dj_config_path
-        )
 
         # From new recordings
         inference_output_dir = (moseq_infer.InferenceTask & key).fetch1(
             "inference_output_dir"
         )
         coordinates_file = (moseq_infer.Inference & key).fetch1("coordinates_file")
-        with open(coordinates_file, "rb") as f:
-            coordinates = pickle.load(f)
         results_file = (moseq_infer.Inference & key).fetch1(
             "syllable_segmentation_file"
         )
-        # Use load_hdf5 instead of h5py.File
-        results = load_hdf5(results_file)
         fps = (moseq_infer.Inference & key).fetch1("average_frame_rate")
+
+        # Join with RecordingSet.File to get file_paths
+        video_sequence_join = (
+            moseq_infer.MotionSequence.VideoSequence * moseq_infer.RecordingSet.File
+        ) & key
+
+        # Fetch all needed attributes
+        video_sequence_data = video_sequence_join.fetch(
+            "file", "file_path", as_dict=True
+        )
+
+        # kpset_dir still needed as fallback for generate_grid_movies
         kpset_dir = (moseq_infer.InferenceTask & key).fetch1("keypointset_dir")
         kpset_dir = find_full_path(kpms_root, kpset_dir)
         kpset_dir = Path(kpset_dir).as_posix()
 
         # Construct output directory
-        kpms_processed = moseq_train.get_kpms_processed_data_dir()
         output_dir = Path(model_dir) / inference_output_dir
-        output_dir = find_full_path(kpms_processed, output_dir)
+        output_dir = Path(find_full_path(kpms_processed, output_dir))
+
+        return (
+            model_dir,
+            model_key,
+            use_bodyparts,
+            kpms_dj_config_path,
+            inference_output_dir,
+            coordinates_file,
+            results_file,
+            fps,
+            video_sequence_data,
+            kpset_dir,
+            output_dir,
+        )
+
+    def make_compute(
+        self,
+        key,
+        model_dir,
+        model_key,
+        use_bodyparts,
+        kpms_dj_config_path,
+        inference_output_dir,
+        coordinates_file,
+        results_file,
+        fps,
+        video_sequence_data,
+        kpset_dir,
+        output_dir,
+    ):
+        """Generate trajectory plots and grid movies, and find generated files.
+
+        High-Level Logic:
+        1. Load KPMS configuration, coordinates, and inference results.
+        2. Build video_paths_dict by matching video keys from results to RecordingSet.File entries.
+        3. Create output directories for trajectory plots and grid movies.
+        4. Generate trajectory plots (GIF and PDF) for all syllables.
+        5. Generate grid movies (MP4) using video_paths_dict or fallback to kpset_dir.
+        6. Search recursively for generated files (GIFs, PDFs, MP4s) in output directories.
+        7. Extract syllable IDs from filenames and build file path mappings.
+        8. Identify syllables with all required files (GIF, PDF, MP4).
+        9. Return file paths and syllable sets for insertion.
+        """
+        from keypoint_moseq import (
+            generate_grid_movies,
+            generate_trajectory_plots,
+            load_hdf5,
+        )
+
+        start_time = datetime.now(timezone.utc)
+
+        kpms_root = moseq_train.get_kpms_root_data_dir()
+
+        # Load kpms config
+        kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
+            config_path=kpms_dj_config_path
+        )
+
+        # Load coordinates and results
+        with open(coordinates_file, "rb") as f:
+            coordinates = pickle.load(f)
+        results = load_hdf5(results_file)
+
+        # Build video_paths_dict
+        video_paths_dict = build_video_paths_dict(
+            key, video_sequence_data, results, kpms_root
+        )
 
         # Create output directories
         trajectory_dir = output_dir / "trajectory_plots"
@@ -207,7 +321,6 @@ class TrajectoryPlot(dj.Computed):
         grid_movies_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Generating trajectory plots for {key}")
-        # Generate trajectory plots
         generate_trajectory_plots(
             coordinates=coordinates,
             results=results,
@@ -215,23 +328,110 @@ class TrajectoryPlot(dj.Computed):
             use_bodyparts=use_bodyparts,
             fps=fps,
             skeleton=kpms_dj_config_dict.get("skeleton", []),
+            min_frequency=MIN_FREQUENCY,
+            min_duration=MIN_DURATION,
         )
 
         logger.info(f"Generating grid movies for {key}")
         # Generate grid movies
-        generate_grid_movies(
-            results=results,
-            video_dir=kpset_dir,
-            coordinates=coordinates,
-            output_dir=grid_movies_dir.as_posix(),
-            use_bodyparts=use_bodyparts,
-            fps=float(fps),
-            overlay_keypoints=True,
-        )
+        # Use video_paths if available, otherwise fall back to video_dir
+        grid_movies_kwargs = {
+            "results": results,
+            "coordinates": coordinates,
+            "output_dir": grid_movies_dir.as_posix(),
+            "use_bodyparts": use_bodyparts,
+            "fps": fps,
+            "overlay_keypoints": True,
+        }
+        if video_paths_dict:
+            grid_movies_kwargs["video_paths"] = video_paths_dict
+        else:
+            grid_movies_kwargs["video_dir"] = kpset_dir
+            logger.warning(
+                f"Using video_dir={kpset_dir} as fallback. "
+                f"Some videos may not be found."
+            )
+
+        generate_grid_movies(**grid_movies_kwargs)
 
         # Calculate duration
         duration_seconds = (datetime.now(timezone.utc) - start_time).total_seconds()
 
+        # Find which syllables have all required files generated
+        # Even with matching filtering parameters, some syllables may not have files
+        # due to internal requirements in generate_trajectory_plots (e.g., n_neighbors)
+
+        # Ensure directories are Path objects
+        trajectory_dir = Path(trajectory_dir)
+        grid_movies_dir = Path(grid_movies_dir)
+
+        # Find trajectory GIF files
+        logger.info(f"Checking for trajectory GIFs in: {trajectory_dir}")
+        trajectory_gifs, trajectory_gif_paths = find_trajectory_files(
+            trajectory_dir, ".gif", exclude_name="all_trajectories.gif"
+        )
+        logger.info(
+            f"Found {len(trajectory_gifs)} trajectory GIF files (syllables: {sorted(trajectory_gifs)[:10] if trajectory_gifs else 'none'}...)"
+        )
+
+        # Find trajectory PDF files
+        logger.info(f"Checking for trajectory PDFs in: {trajectory_dir}")
+        trajectory_pdfs, trajectory_pdf_paths = find_trajectory_files(
+            trajectory_dir, ".pdf", exclude_name="all_trajectories.pdf"
+        )
+        logger.info(
+            f"Found {len(trajectory_pdfs)} trajectory PDF files (syllables: {sorted(trajectory_pdfs)[:10] if trajectory_pdfs else 'none'}...)"
+        )
+
+        # Find grid movie MP4 files
+        logger.info(f"Checking for grid movies in: {grid_movies_dir}")
+        grid_movie_mp4s, grid_movie_mp4_paths = find_grid_movie_files(grid_movies_dir)
+        logger.info(
+            f"Found {len(grid_movie_mp4s)} grid movie MP4 files (syllables: {sorted(grid_movie_mp4s)[:10]}...)"
+        )
+
+        # Only insert syllables that have all three file types
+        syllables_with_all_files = trajectory_gifs & trajectory_pdfs & grid_movie_mp4s
+
+        # Log warning if some sampled syllables don't have complete files
+        sampled_syllables = set(
+            (moseq_infer.MotionSequence.SampledInstance & key).fetch("syllable")
+        )
+        missing_syllables = sampled_syllables - syllables_with_all_files
+        if missing_syllables:
+            logger.warning(
+                f"Skipping {len(missing_syllables)} syllables without complete files: "
+                f"{sorted(missing_syllables)}"
+            )
+
+        return (
+            duration_seconds,
+            trajectory_dir,
+            grid_movies_dir,
+            trajectory_gif_paths,
+            trajectory_pdf_paths,
+            grid_movie_mp4_paths,
+            syllables_with_all_files,
+        )
+
+    def make_insert(
+        self,
+        key,
+        duration_seconds,
+        trajectory_dir,
+        grid_movies_dir,
+        trajectory_gif_paths,
+        trajectory_pdf_paths,
+        grid_movie_mp4_paths,
+        syllables_with_all_files,
+    ):
+        """Insert trajectory plot results into the database.
+
+        High-Level Logic:
+        1. Insert main TrajectoryPlot entry with all_trajectories files and duration.
+        2. Insert per-syllable entries (Syllable part table) for syllables with complete files.
+        3. Only insert syllables that have all three file types (GIF, PDF, MP4).
+        """
         self.insert1(
             {
                 **key,
@@ -240,15 +440,16 @@ class TrajectoryPlot(dj.Computed):
                 "traj_duration": duration_seconds,
             }
         )
-        for syllable in (moseq_infer.MotionSequence.SampledInstance & key).fetch(
-            "syllable"
-        ):
+
+        # Insert only syllables with all required files
+        # Use actual file paths found (in case files are in subdirectories)
+        for syllable in sorted(syllables_with_all_files):
             self.Syllable.insert1(
                 {
                     **key,
                     "syllable_id": syllable,
-                    "plot_gif": trajectory_dir / f"syllable{syllable}.gif",
-                    "plot_pdf": trajectory_dir / f"syllable{syllable}.pdf",
-                    "grid_movie": grid_movies_dir / f"syllable{syllable}.mp4",
+                    "plot_gif": trajectory_gif_paths[syllable],
+                    "plot_pdf": trajectory_pdf_paths[syllable],
+                    "grid_movie": grid_movie_mp4_paths[syllable],
                 }
             )

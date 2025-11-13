@@ -7,6 +7,7 @@ import cv2
 import datajoint as dj
 import numpy as np
 import yaml
+from element_interface.utils import find_full_path
 
 logger = dj.logger
 
@@ -519,3 +520,118 @@ def validate_video_directory(
     )
 
     return videos_dir
+
+
+def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
+    """Build dictionary mapping video keys to video file paths.
+
+    Args:
+        key (dict): Primary key for querying RecordingSet.
+        video_sequence_data (list): List of dictionaries with 'file' and 'file_path' keys.
+        results (dict): Inference results dictionary with video keys.
+        kpms_root (list): Root data directories.
+
+    Returns:
+        dict: Mapping of video keys to video file paths.
+    """
+    # Lazy import to avoid circular dependencies
+    from .. import moseq_infer
+    from ..plotting.viz_utils import extract_base_video_key
+
+    if not video_sequence_data:
+        vs_count = len((moseq_infer.MotionSequence.VideoSequence & key))
+        logger.warning(
+            f"No VideoSequence entries found in join for key: {key}. "
+            f"Direct VideoSequence count: {vs_count}. "
+            f"Ensure MotionSequence is populated."
+        )
+        return {}
+
+    video_paths_dict = {}
+    video_extensions = {
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".mkv",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".mpeg",
+        ".mpg",
+    }
+    video_keys_from_results = list(results.keys())
+
+    logger.info(
+        f"Found {len(video_sequence_data)} VideoSequence entries. "
+        f"Results.h5 has {len(video_keys_from_results)} video keys: {video_keys_from_results}"
+    )
+
+    recording_set_key = (moseq_infer.InferenceTask & key).fetch1("KEY")
+    all_file_paths = (moseq_infer.RecordingSet.File & recording_set_key).fetch(
+        "file_path"
+    )
+
+    logger.info(
+        f"Found {len(all_file_paths)} total files in RecordingSet.File "
+        f"for recording: {recording_set_key}"
+    )
+
+    stem_to_video_path = {}
+    for file_path in all_file_paths:
+        file_path_obj = Path(file_path)
+        if file_path_obj.suffix.lower() in video_extensions:
+            stem = file_path_obj.stem
+            try:
+                full_video_path = find_full_path(kpms_root, file_path)
+                if Path(full_video_path).exists():
+                    stem_to_video_path[stem] = str(full_video_path)
+                else:
+                    logger.debug(f"Video file not found: {full_video_path}")
+            except Exception as e:
+                logger.debug(f"Could not resolve path for {file_path}: {e}")
+
+    logger.info(
+        f"Found {len(stem_to_video_path)} video files in RecordingSet.File: "
+        f"{list(stem_to_video_path.keys())[:5]}..."
+    )
+
+    for entry in video_sequence_data:
+        csv_file = entry["file"]
+        csv_file_path = Path(csv_file)
+        video_key = csv_file_path.stem
+
+        if video_key not in video_keys_from_results:
+            logger.warning(
+                f"Video key '{video_key}' from CSV not found in results.h5 keys. "
+                f"Skipping."
+            )
+            continue
+
+        base_video_key = extract_base_video_key(video_key)
+        video_path = None
+        for stem, path in stem_to_video_path.items():
+            if (
+                stem.lower() == video_key.lower()
+                or stem.lower() == base_video_key.lower()
+            ):
+                video_path = path
+                break
+
+        if video_path:
+            video_paths_dict[video_key] = video_path
+            logger.info(f"Mapped video key '{video_key}' -> {video_path}")
+        else:
+            logger.warning(
+                f"✗ No video file found matching video key '{video_key}'. "
+                f"Available stems: {list(stem_to_video_path.keys())[:5]}..."
+            )
+
+    if not video_paths_dict:
+        logger.error(
+            f"Failed to build video_paths_dict. "
+            f"Video sequence entries: {len(video_sequence_data)}, "
+            f"Video keys from results.h5: {video_keys_from_results}, "
+            f"CSV file stems: {[Path(e['file']).stem for e in video_sequence_data]}"
+        )
+
+    return video_paths_dict
