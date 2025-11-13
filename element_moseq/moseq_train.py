@@ -1278,7 +1278,7 @@ class PreFit(dj.Computed):
                 ar_only=True,
                 num_iters=pre_num_iterations,
                 generate_progress_plots=True,  # saved to {project_dir}/{model_name}/plots/
-                save_every_n_iters=5,  # TODO: change to a higher value
+                save_every_n_iters=5,
             )
             # Create a PNG version of the PDF progress plot
             png_path, pdf_path = viz_utils.copy_pdf_to_png(
@@ -1601,7 +1601,7 @@ class FullFit(dj.Computed):
                     ar_only=False,
                     num_iters=full_num_iterations,
                     generate_progress_plots=True,
-                    save_every_n_iters=5,  # TODO: to change to a higher value
+                    save_every_n_iters=5,
                     verbose=False,
                 )
             except Exception as e:
