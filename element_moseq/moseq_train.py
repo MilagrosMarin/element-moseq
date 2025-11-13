@@ -698,6 +698,8 @@ class PreProcessingQA(dj.Computed):
         """
         from keypoint_moseq import overlay_keypoints_on_video
 
+        execution_time = datetime.now(timezone.utc)
+
         fps_lookup = {v["video_id"]: float(v["frame_rate"]) for v in fps_lookup}
 
         kpms_dj_config_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
@@ -705,8 +707,6 @@ class PreProcessingQA(dj.Computed):
             config_path=kpms_dj_config_path,
             build_indexes=True,
         )
-
-        execution_time = datetime.now(timezone.utc)
 
         # Calculate NaN proportions breakdown for each recording and bodypart
         # Replicating keypoint-moseq's check_nan_proportions logic
