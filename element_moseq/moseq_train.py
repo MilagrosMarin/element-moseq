@@ -9,14 +9,11 @@ import os
 import pickle
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
-import cv2
 import datajoint as dj
 import jax_moseq
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from element_interface.utils import find_full_path
 
 # Configure JAX for better compatibility with DataJoint/DeepHash
@@ -62,7 +59,7 @@ def activate(
         linking_module = importlib.import_module(linking_module)
     assert inspect.ismodule(
         linking_module
-    ), "The argument 'dependency' must be a module's name or a module object"
+    ), "The argument 'linking_module' must be a module's name or a module object"
 
     assert hasattr(
         linking_module, "get_kpms_root_data_dir"
@@ -170,8 +167,9 @@ class KeypointSet(dj.Manual):
 
         Attributes:
             KeypointSet (foreign key) : Unique ID for each keypoint set.
-            video_id (int)            : Unique ID for each video corresponding to each keypoint data file, relative to root data directory.
+            video_id (int)            : Unique ID for each video corresponding to each keypoint data file.
             video_path (str)          : Filepath of each video from which the keypoints are derived, relative to root data directory.
+            pose_estimation_path (str) : Optional. Filepath of each pose estimation file (e.g., `.h5`) that contains the keypoints, relative to root data directory.
         """
 
         definition = """
@@ -355,11 +353,11 @@ class PreProcessing(dj.Computed):
             use_bodyparts (list): List of bodyparts to use.
             pose_estimation_method (str): Pose estimation method (e.g., 'deeplabcut').
             kpset_dir (str): Keypoint set directory path.
-            video_paths (list): List of video file paths.
-            video_ids (list): List of video IDs.
+            keypoint_videofile_metadata (list): List of dictionaries containing video metadata
+                (video_id, video_path, pose_estimation_path) from KeypointSet.VideoFile.
             kpms_project_output_dir (str): Project output directory path.
             task_mode (str): Task mode ('load' or 'trigger').
-            outlier_scale_factor (int): Scale factor for outlier detection.
+            outlier_scale_factor (float): Scale factor for outlier detection.
 
         Returns:
             tuple: Processed data including cleaned coordinates, confidences, and video metadata.
@@ -628,13 +626,14 @@ class PreProcessingQA(dj.Computed):
     Check if any bodyparts have a high proportion of NaNs and generate and store QA materials (outlier removal plots and overlay videos).
     Attributes:
         PreProcessing (foreign key)     : `PreProcessing` Key.
-        nan_df (longblob)                : DataFrame containing NaN proportion breakdown by bodypart.
+        nan_breakdown (attach)          : PNG image containing NaN proportion breakdown by bodypart.
+        qa_duration (float)             : Duration of QA in seconds.
     """
 
     definition = """
     -> PreProcessing                      # `PreProcessing` Key
     ---
-    nan_breakdown             : attach  # HTML table containing NaN proportion breakdown by bodypart
+    nan_breakdown             : attach  # PNG image containing NaN proportion breakdown by bodypart
     qa_duration               : float   # Duration of QA in seconds
     """
 
@@ -688,10 +687,13 @@ class PreProcessingQA(dj.Computed):
 
         Args:
             key (dict): Primary key from the `PreProcessing` table.
+            use_bodyparts (list): List of bodyparts to use.
             coordinates (dict): Cleaned coordinates dictionary.
             kpms_project_output_dir (Path): Project output directory path.
-            kpms_dj_config_dict (dict): KPMS configuration dictionary.
-            keypoint_videofile_metadata (list): Video metadata list.
+            kpms_dj_config_path (Path): Path to KPMS DJ configuration file.
+            keypoint_videofile_metadata (list): List of dictionaries containing video metadata
+                (video_id, video_path, pose_estimation_path) from KeypointSet.VideoFile.
+            fps_lookup (list): List of dictionaries containing video_id and frame_rate from PreProcessing.Video.
 
         Returns:
             tuple: QA data including breakdown data, QA materials, and duration.
@@ -708,72 +710,13 @@ class PreProcessingQA(dj.Computed):
             build_indexes=True,
         )
 
-        # Calculate NaN proportions breakdown for each recording and bodypart
-        # Replicating keypoint-moseq's check_nan_proportions logic
-        keys = sorted(coordinates.keys())
-        nan_props = [np.isnan(coordinates[k]).any(-1).mean(0) for k in keys]
-
-        # Create the DataFrame for HTML table
-        nan_df = pd.DataFrame(data=nan_props, index=keys, columns=use_bodyparts)
-        nan_styler = (
-            nan_df.style.background_gradient(cmap="RdYlBu_r", axis=None)
-            .format("{:.1%}")
-            .set_caption(
-                '<h2 style="color:#333;text-align:center;">NaN Proportion Breakdown</h2>'
-            )
-            .set_table_styles(
-                [
-                    {
-                        "selector": "th",
-                        "props": [
-                            ("font-size", "11pt"),
-                            ("background-color", "#F2F2F2"),
-                            ("color", "#222"),
-                            ("font-weight", "bold"),
-                            ("padding", "8px"),
-                        ],
-                    },
-                    {
-                        "selector": "td",
-                        "props": [
-                            ("font-size", "10pt"),
-                            ("padding", "6px 12px"),
-                            ("text-align", "center"),
-                        ],
-                    },
-                    {
-                        "selector": "caption",
-                        "props": [
-                            ("caption-side", "top"),
-                            ("font-size", "14pt"),
-                            ("color", "#29487d"),
-                            ("font-weight", "bold"),
-                            ("margin-bottom", "12px"),
-                        ],
-                    },
-                    {
-                        "selector": "",
-                        "props": [
-                            ("border-collapse", "collapse"),
-                            ("margin", "25px auto"),
-                        ],
-                    },
-                ]
-            )
-            .set_properties(**{"border": "1px solid #ddd"})
-        )
-
-        # Save HTML to temporary file for DataJoint attach
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
-            f.write(nan_styler.to_html())
-            nan_html_path = f.name
+        # Generate NaN breakdown visualization
+        nan_png_path = viz_utils.plot_nan_breakdown(coordinates, use_bodyparts)
 
         # Generate QA materials (plots and videos) for each recording
         qa_data = []
 
-        VIDEO_SAMPLE_DURATION_SECONDS = 6  # seconds of video to sample for QA
+        VIDEO_SAMPLE_DURATION_SECONDS = 10  # seconds of video to sample for QA
 
         for row in keypoint_videofile_metadata:
             video_id = int(row["video_id"])
@@ -802,14 +745,14 @@ class PreProcessingQA(dj.Computed):
 
             # Generate overlay video for this specific recording (skip if already exists)
             if not overlay_video_path.exists():
-                # Calculate frames for 1 minute of video
+                # Calculate frames for video sample duration
                 frame_rate = fps_lookup.get(
                     video_id, 30.0
                 )  # Default to 30fps if not found
                 frames_for_dur = int(frame_rate * VIDEO_SAMPLE_DURATION_SECONDS)
 
                 logger.info(
-                    f"Processing video {video_id}: {frame_rate}fps -> {frames_for_dur} frames for 1min"
+                    f"Processing video {video_id}: {frame_rate}fps -> {frames_for_dur} frames for {VIDEO_SAMPLE_DURATION_SECONDS}s by default"
                 )
 
                 overlay_keypoints_on_video(
@@ -840,7 +783,7 @@ class PreProcessingQA(dj.Computed):
         duration_seconds = (completion_time - execution_time).total_seconds()
 
         return (
-            nan_html_path,
+            nan_png_path,
             qa_data,
             duration_seconds,
         )
@@ -848,7 +791,7 @@ class PreProcessingQA(dj.Computed):
     def make_insert(
         self,
         key,
-        nan_html_path,
+        nan_png_path,
         qa_data,
         duration_seconds,
     ):
@@ -859,7 +802,7 @@ class PreProcessingQA(dj.Computed):
         self.insert1(
             {
                 **key,
-                "nan_breakdown": nan_html_path,
+                "nan_breakdown": nan_png_path,
                 "qa_duration": duration_seconds,
             }
         )
@@ -1174,8 +1117,9 @@ class PreFit(dj.Computed):
 
     Attributes:
         PreFitTask (foreign key)                : `PreFitTask` Key.
-        model_name (varchar)                    : Name of the model as "model_name".
-        pre_fit_duration (float)                : Time duration (seconds) of the model fitting computation.
+        model_name (varchar)                    : Name of the model as "kpms_project_output_dir/model_name".
+        pre_fit_time (datetime)                  : Datetime of the model fitting computation.
+        pre_fit_duration (float)                 : Time duration (seconds) of the model fitting computation.
     """
 
     definition = """
@@ -1336,7 +1280,7 @@ class PreFit(dj.Computed):
                 generate_progress_plots=True,  # saved to {project_dir}/{model_name}/plots/
                 save_every_n_iters=5,  # TODO: change to a higher value
             )
-            # Create a PNG version fo the PDF progress plot
+            # Create a PNG version of the PDF progress plot
             png_path, pdf_path = viz_utils.copy_pdf_to_png(
                 kpms_project_output_dir, model_name
             )
@@ -1452,8 +1396,9 @@ class FullFit(dj.Computed):
 
     Attributes:
         FullFitTask (foreign key)            : `FullFitTask` Key.
-        model_name                           : varchar(100) # Name of the model as "kpms_project_output_dir/model_name"
-        full_fit_duration (float)            : Time duration (seconds) of the full fitting computation
+        model_name (varchar)                 : Name of the model as "kpms_project_output_dir/model_name".
+        full_fit_time (datetime)              : Datetime of the full fitting computation.
+        full_fit_duration (float)             : Time duration (seconds) of the full fitting computation.
     """
 
     definition = """
@@ -1673,7 +1618,7 @@ class FullFit(dj.Computed):
                     f"Reindexing syllables failed due to FullFit training failure: {e}"
                 )
 
-            # Create a PNG version fo the PDF progress plot
+            # Create a PNG version of the PDF progress plot
             model_name_full_path = find_full_path(kpms_project_output_dir, model_name)
             pdf_path = model_name_full_path / "fitting_progress.pdf"
             png_path = model_name_full_path / "fitting_progress.png"
@@ -1695,9 +1640,13 @@ class FullFit(dj.Computed):
 
         # Get the path to the updated config file
         if not pdf_path.exists():
-            raise FileNotFoundError(f"PreFit PDF progress plot not found at {pdf_path}")
+            raise FileNotFoundError(
+                f"FullFit PDF progress plot not found at {pdf_path}"
+            )
         if not png_path.exists():
-            raise FileNotFoundError(f"PreFit PNG progress plot not found at {png_path}")
+            raise FileNotFoundError(
+                f"FullFit PNG progress plot not found at {png_path}"
+            )
 
         # Find checkpoint file
         checkpoint_files = []
@@ -1829,11 +1778,11 @@ class SelectedFullFit(dj.Manual):
         """Automatically select the best model for a FullFit based on highest MLL score.
 
         Args:
-            pcafit_key (dict): PCAFit key to filter models
-            model_desc (str): Description for the selected model
+            key (dict): FullFit key to filter models.
+            model_desc (str): Description for the selected model.
 
         Returns:
-            dict: The key of the selected model
+            dict: The key of the selected model (FullFit primary key).
         """
         # Get all models with their scores for this specific PCAFit
         models_with_scores = (FullFit * ModelScore & key).fetch()
