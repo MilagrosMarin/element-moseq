@@ -67,6 +67,7 @@ def _kpms_dj_config_path(kpms_project_dir: Union[str, os.PathLike]) -> str:
     return str(Path(kpms_project_dir) / KPMS_DJ_CONFIG)
 
 
+# ---- Modified version of the function from the main branch of keypoint_moseq  ----
 def _check_config_validity(config: Dict[str, Any]) -> bool:
     """
     Minimal mirror of keypoint_moseq.io.check_config_validity logic that matters
@@ -93,6 +94,7 @@ def _check_config_validity(config: Dict[str, Any]) -> bool:
     return True
 
 
+# ---- Modified version of the function from the main branch of keypoint_moseq  ----
 def dj_generate_config(kpms_project_dir: str, **kwargs) -> tuple:
     """
     Generate or refresh `<kpms_project_dir>/kpms_dj_config.yml` from the KPMS base config.
@@ -173,6 +175,7 @@ def dj_generate_config(kpms_project_dir: str, **kwargs) -> tuple:
     )
 
 
+# ---- Modified version of the viz function from the main branch of keypoint_moseq  ----
 def load_kpms_dj_config(
     kpms_project_dir: str = None,
     config_path: str = None,
@@ -243,6 +246,7 @@ def load_kpms_dj_config(
     return cfg_dict
 
 
+# ---- Modified version of the viz function from the main branch of keypoint_moseq  ----
 def update_kpms_dj_config(
     kpms_project_dir: str = None,
     config_dict: Dict[str, Any] = None,
