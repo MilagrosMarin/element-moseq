@@ -460,7 +460,6 @@ class Inference(dj.Computed):
             duration_seconds = (end_time - start_time).total_seconds()
 
         else:
-            # Load mode: load existing files from previous inference
             duration_seconds = None
             coordinates_filepath = inference_output_dir / "coordinates.pkl"
             confidences_filepath = inference_output_dir / "confidences.pkl"
