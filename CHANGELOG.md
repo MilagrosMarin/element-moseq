@@ -3,6 +3,34 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.2.0] - 2025-11-13
+> **BREAKING CHANGES** - This version contains breaking changes due to keypoint-moseq upgrade and API refactoring. Please review the changes below and update your code accordingly.
+
+### Breaking Changes
++ **BREAKING**: Rename VideoRecording to RecordingSet for clearer meaning in `moseq_infer` schema
++ **BREAKING**: Integrate `PreProcessingReport` after `PreProcessing` in `moseq_train`, rather than in `moseq_report`
++ **BREAKING**: Rename `Bodyparts` to `BodyParts` to match naming conventions
+
+### New Features and Fixes
++ Feat - External storage of files (and configuration file versions) via attach and filepath, covering items like model_file, config_file, coordinates_file, and confidences_file
++ Update - Addition of duration fields in heavily computed tables for performance reports
++ Feat - Include a method to infer the output directory in `InferenceTask`
++ Update - Enhance Inference computation for robustness, supporting various keypointset files and adding outlier_removal
++ Feat - Introduce a separate `MotionSequence` table for inference to address connection loss issues
++ Feat - Add `BehavioralSummary` and `TrajectoryPlot` to `moseq_report` schema to analyze and store visualization outputs from inference
++ Update - Implement specific JAX configurations to unify table precision and ensure correct generation and ingestion of JAX-moseq data objects
++ Feat -Add a method in PCATask to infer the kpms_project_output_dir
++ Update - Include sanity checks for proper usage of stored files in downstream tables, e.g., coordinates
++ Update -Correct bodyparts handling to analyze only the specified ones in the BodyParts pipeline instead of the base config
++ Fix - outlier_removal application on data
++ Feat - add PreProcessingQA to generate and store quality assurance data, including a table of NaNs per bodypart
++ Update - Enable `SelectedFullFit` to automatically rank models using the Marginal Log Likelihood (MLL) score
++ Update - Improve kpms_reader helper functions for strict directory and config validation
++ Update - Enhance plotting utilities in viz_utils for better return values
++ Update - Implement stricter input validation
++ Update - Modify plotting functions to provide more useful output
++ Update - Enforce absolute path requirements in file operations
+
 ## [1.1.0] - 2025-10-15
 
 > **BREAKING CHANGES** - This version contains breaking changes due to keypoint-moseq upgrade and API refactoring. Please review the changes below and update your code accordingly.
