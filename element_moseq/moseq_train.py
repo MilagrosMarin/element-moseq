@@ -1269,6 +1269,18 @@ class PreFit(dj.Computed):
 
             execution_time = datetime.now(timezone.utc)
 
+            # Set mixed map iterations to reduce GPU memory usage by processing data in batches
+            try:
+                from jax_moseq.utils import set_mixed_map_iters
+
+                set_mixed_map_iters(4)
+                logger.info("Using set_mixed_map_iters(4) to reduce GPU memory usage")
+            except (ImportError, AttributeError):
+                logger.warning(
+                    "set_mixed_map_iters not available in this version of jax_moseq. "
+                    "Proceeding without batch processing."
+                )
+
             # Fit the model
             model, _ = fit_model(
                 model=model,
@@ -1592,22 +1604,24 @@ class FullFit(dj.Computed):
                 raise ValueError(f"Model initialization failed: {e}")
 
             # Fit the model
-            try:
-                model, model_name = fit_model(
-                    model=model_to_fit,
-                    model_name=model_name,
-                    data=data,
-                    metadata=metadata,
-                    project_dir=kpms_project_output_dir.as_posix(),
-                    ar_only=False,
-                    num_iters=full_num_iterations,
-                    generate_progress_plots=True,
-                    save_every_n_iters=5,
-                    verbose=False,
-                    parallel_message_passing=False,
-                )
-            except Exception as e:
-                raise ValueError(f"FullFit training failed: {e}")
+            from jax_moseq.utils import set_mixed_map_iters
+
+            set_mixed_map_iters(8)
+            logger.info("Using set_mixed_map_iters(8) to reduce GPU memory usage")
+
+            model, model_name = fit_model(
+                model=model_to_fit,
+                model_name=model_name,
+                data=data,
+                metadata=metadata,
+                project_dir=kpms_project_output_dir.as_posix(),
+                ar_only=False,
+                num_iters=full_num_iterations,
+                generate_progress_plots=True,
+                save_every_n_iters=5,
+                verbose=False,
+                parallel_message_passing=False,
+            )
 
             try:
                 # Reindex the syllables in the checkpoint file
