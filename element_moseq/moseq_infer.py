@@ -447,6 +447,7 @@ class Inference(dj.Computed):
                 num_iters=num_iterations or DEFAULT_NUM_ITERS,
                 overwrite=True,
                 save_results=True,
+                parallel_message_passing=False,
                 **fullfit_kpms_dj_config_dict,
             )
 

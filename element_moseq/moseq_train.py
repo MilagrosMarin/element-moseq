@@ -1603,6 +1603,7 @@ class FullFit(dj.Computed):
                     generate_progress_plots=True,
                     save_every_n_iters=5,
                     verbose=False,
+                    parallel_message_passing=False,
                 )
             except Exception as e:
                 raise ValueError(f"FullFit training failed: {e}")
