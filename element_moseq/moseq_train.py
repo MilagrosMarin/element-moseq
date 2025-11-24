@@ -1604,10 +1604,11 @@ class FullFit(dj.Computed):
                 raise ValueError(f"Model initialization failed: {e}")
 
             # Fit the model
-            from jax_moseq.utils import set_mixed_map_iters
+            from jax_moseq.utils import set_mixed_map_gpus
 
-            set_mixed_map_iters(8)
-            logger.info("Using set_mixed_map_iters(8) to reduce GPU memory usage")
+            set_mixed_map_gpus(6)
+
+            logger.info("Using set_mixed_map_gpus(6) to reduce GPU memory usage")
 
             model, model_name = fit_model(
                 model=model_to_fit,
