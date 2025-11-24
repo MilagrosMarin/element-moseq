@@ -1573,13 +1573,23 @@ class FullFit(dj.Computed):
                 }
             )
             if pre_model_key_query:
-                pre_model_key = pre_model_key_query.fetch1("KEY")
-                pre_model = (
-                    PreFit.File & pre_model_key & 'file_name="model_data.pkl"'
-                ).fetch1("file_path")
-                logger.info(
-                    f"Using PreFit model {pre_model_key} as warm start for FullFit"
+                # Fetch all matching PreFit models with their number of iterations
+                # Select the one with the highest pre_num_iterations for best warm start
+                prefit_entries = pre_model_key_query.fetch(
+                    "KEY", "pre_num_iterations", as_dict=True
                 )
+                if prefit_entries:
+                    # Sort by pre_num_iterations descending and take the first (highest)
+                    prefit_entries.sort(
+                        key=lambda x: x["pre_num_iterations"], reverse=True
+                    )
+                    pre_model_key = prefit_entries[0]["KEY"]
+                    pre_model = (
+                        PreFit.File & pre_model_key & 'file_name="model_data.pkl"'
+                    ).fetch1("file_path")
+                    logger.info(
+                        f"Using PreFit model {pre_model_key} (pre_num_iterations={prefit_entries[0]['pre_num_iterations']}) as warm start for FullFit"
+                    )
 
             execution_time = datetime.now(timezone.utc)
 
