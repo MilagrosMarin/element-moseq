@@ -334,7 +334,7 @@ class TrajectoryPlot(dj.Computed):
 
         logger.info(f"Generating grid movies for {key}")
         # Generate grid movies
-        # Use video_paths if available, otherwise fall back to video_dir
+        # Use video_paths if available and complete, otherwise fall back to video_dir
         grid_movies_kwargs = {
             "results": results,
             "coordinates": coordinates,
@@ -343,14 +343,33 @@ class TrajectoryPlot(dj.Computed):
             "fps": fps,
             "overlay_keypoints": False,
         }
-        if video_paths_dict:
+
+        # Check if video_paths_dict contains all keys from results
+        results_keys = set(results.keys())
+        video_paths_keys = set(video_paths_dict.keys()) if video_paths_dict else set()
+        missing_keys = results_keys - video_paths_keys
+
+        if video_paths_dict and not missing_keys:
+            # All keys have video paths, use video_paths
             grid_movies_kwargs["video_paths"] = video_paths_dict
-        else:
-            grid_movies_kwargs["video_dir"] = kpset_dir
-            logger.warning(
-                f"Using video_dir={kpset_dir} as fallback. "
-                f"Some videos may not be found."
+            logger.info(
+                f"Using video_paths with {len(video_paths_dict)} entries for grid movies"
             )
+        else:
+            # Some keys are missing video paths, use video_dir as fallback
+            grid_movies_kwargs["video_dir"] = kpset_dir
+            if missing_keys:
+                logger.warning(
+                    f"Missing video paths for {len(missing_keys)} keys: {sorted(missing_keys)[:5]}... "
+                    f"Using video_dir={kpset_dir} as fallback. "
+                    f"Some videos may not be found."
+                )
+            else:
+                logger.warning(
+                    f"No video_paths_dict available. "
+                    f"Using video_dir={kpset_dir} as fallback. "
+                    f"Some videos may not be found."
+                )
 
         generate_grid_movies(**grid_movies_kwargs)
 
