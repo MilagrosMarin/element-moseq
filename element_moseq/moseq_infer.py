@@ -457,6 +457,14 @@ class Inference(dj.Computed):
                 save_dir=(inference_output_dir / "results_as_csv").as_posix(),
             )
 
+            # Save coordinates and confidences to pickle files
+            coordinates_filepath = inference_output_dir / "coordinates.pkl"
+            confidences_filepath = inference_output_dir / "confidences.pkl"
+            with open(coordinates_filepath, "wb") as f:
+                pickle.dump(coordinates, f)
+            with open(confidences_filepath, "wb") as f:
+                pickle.dump(confidences, f)
+
             end_time = datetime.now(timezone.utc)
             duration_seconds = (end_time - start_time).total_seconds()
 
