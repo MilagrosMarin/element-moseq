@@ -341,7 +341,7 @@ class TrajectoryPlot(dj.Computed):
             "output_dir": grid_movies_dir.as_posix(),
             "use_bodyparts": use_bodyparts,
             "fps": fps,
-            "overlay_keypoints": True,
+            "overlay_keypoints": False,
         }
         if video_paths_dict:
             grid_movies_kwargs["video_paths"] = video_paths_dict
