@@ -1270,16 +1270,16 @@ class PreFit(dj.Computed):
             execution_time = datetime.now(timezone.utc)
 
             # Set mixed map iterations to reduce GPU memory usage by processing data in batches
-            try:
-                from jax_moseq.utils import set_mixed_map_iters
+            # try:
+            #     from jax_moseq.utils import set_mixed_map_iters
 
-                set_mixed_map_iters(4)
-                logger.info("Using set_mixed_map_iters(4) to reduce GPU memory usage")
-            except (ImportError, AttributeError):
-                logger.warning(
-                    "set_mixed_map_iters not available in this version of jax_moseq. "
-                    "Proceeding without batch processing."
-                )
+            #     set_mixed_map_iters(4)
+            #     logger.info("Using set_mixed_map_iters(4) to reduce GPU memory usage")
+            # except (ImportError, AttributeError):
+            #     logger.warning(
+            #         "set_mixed_map_iters not available in this version of jax_moseq. "
+            #         "Proceeding without batch processing."
+            #     ) #TODO: remove this after testing
 
             # Fit the model
             model, _ = fit_model(
