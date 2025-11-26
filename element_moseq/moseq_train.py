@@ -1593,6 +1593,9 @@ class FullFit(dj.Computed):
             except Exception as e:
                 raise ValueError(f"Model initialization failed: {e}")
 
+            # Ensure data precision is converted before fit_model
+            data = jax_moseq.utils.debugging.convert_data_precision(data)
+
             # Setup GPU optimization
             kpms_reader.setup_gpu_optimization()
 
