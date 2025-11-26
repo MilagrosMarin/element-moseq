@@ -635,3 +635,213 @@ def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
         )
 
     return video_paths_dict
+
+
+def prepare_fitting_data_and_config(
+    config_path: Union[str, os.PathLike],
+    pca_path: Union[str, os.PathLike],
+    coordinates: Dict[str, np.ndarray],
+    confidences: Dict[str, np.ndarray],
+    use_bodyparts: List[str],
+    average_frame_rate: float,
+    latent_dim: int,
+    kappa: float,
+    get_kpms_processed_data_dir,
+    find_full_path,
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Any]:
+    """
+    Prepare data and config for model fitting.
+
+    This function:
+    1. Loads PCA from the provided path
+    2. Formats keypoint data
+    3. Estimates sigmasq_loc
+    4. Updates and saves config with fitting parameters
+    5. Reloads config with indexes for model initialization
+
+    Args:
+        config_path: Path to KPMS DJ config file (relative or absolute)
+        pca_path: Path to PCA file (pca.p) - parent directory will be used
+        coordinates: Dictionary of coordinates per recording
+        confidences: Dictionary of confidences per recording
+        use_bodyparts: List of bodyparts to use
+        average_frame_rate: Average frame rate for sigmasq_loc estimation
+        latent_dim: Latent dimension for model fitting
+        kappa: Kappa value for model fitting
+        get_kpms_processed_data_dir: Function to get processed data directory
+        find_full_path: Function to resolve full paths
+
+    Returns:
+        Tuple of (data, metadata, kpms_dj_config_dict, pca) where:
+            - data: Formatted data dictionary
+            - metadata: Metadata dictionary
+            - kpms_dj_config_dict: Config dictionary with indexes built
+            - pca: Loaded PCA object
+    """
+    from keypoint_moseq import estimate_sigmasq_loc, format_data, load_pca
+
+    # Resolve config path
+    kpms_dj_config_abs_path = find_full_path(get_kpms_processed_data_dir(), config_path)
+
+    # Load PCA
+    pca = load_pca(str(Path(pca_path).parent))
+
+    # Format keypoint data
+    data, metadata = format_data(
+        coordinates=coordinates,
+        confidences=confidences,
+        use_bodyparts=use_bodyparts,
+    )
+
+    # Load config and estimate sigmasq_loc
+    kpms_dj_config_dict = load_kpms_dj_config(
+        config_path=kpms_dj_config_abs_path, build_indexes=False
+    )
+
+    sigmasq_loc_val = float(
+        estimate_sigmasq_loc(data["Y"], data["mask"], filter_size=average_frame_rate)
+    )
+
+    # Update and save config with fitting parameters
+    update_kpms_dj_config(
+        config_dict=kpms_dj_config_dict,
+        config_path=str(kpms_dj_config_abs_path),
+        latent_dim=int(latent_dim),
+        kappa=float(kappa),
+        sigmasq_loc=sigmasq_loc_val,
+    )
+
+    # Reload config with indexes for model initialization
+    kpms_dj_config_dict = load_kpms_dj_config(
+        config_path=kpms_dj_config_abs_path, build_indexes=True
+    )
+
+    return data, metadata, kpms_dj_config_dict, pca
+
+
+def find_checkpoint_file(model_name_full_path: Union[str, os.PathLike]) -> Path:
+    """Find the most recent checkpoint file in the model directory.
+
+    Args:
+        model_name_full_path: Path to the model directory
+
+    Returns:
+        Path to the most recent checkpoint file
+
+    Raises:
+        FileNotFoundError: If no checkpoint files are found
+    """
+    model_name_full_path = Path(model_name_full_path)
+    checkpoint_files = []
+    for pattern in ("checkpoint*", "*.h5"):
+        checkpoint_files.extend(model_name_full_path.glob(pattern))
+    if checkpoint_files:
+        return max(checkpoint_files, key=lambda f: f.stat().st_mtime)
+    raise FileNotFoundError(f"No checkpoint files found in {model_name_full_path}")
+
+
+def setup_gpu_optimization():
+    """Setup GPU optimization if available.
+
+    Attempts to set mixed map GPUs to reduce GPU memory usage.
+    Logs warnings if GPU optimization is not available.
+    """
+    try:
+        import jax
+        from jax_moseq.utils import set_mixed_map_gpus
+
+        devices = jax.devices()
+        if devices and devices[0].platform == "gpu":
+            set_mixed_map_gpus(6)
+            logger.info("Using set_mixed_map_gpus(6) to reduce GPU memory usage")
+        else:
+            logger.info("GPU not available, skipping set_mixed_map_gpus")
+    except (ImportError, AttributeError, IndexError) as e:
+        logger.warning(
+            f"set_mixed_map_gpus not available: {e}. Proceeding without GPU optimization."
+        )
+
+
+def initialize_model_for_fitting(
+    data: Dict[str, Any],
+    metadata: Dict[str, Any],
+    pca: Any,
+    kpms_dj_config_dict: Dict[str, Any],
+    pre_model: Union[str, Path, None],
+    full_kappa: float,
+    full_latent_dim: int,
+) -> Any:
+    """Initialize model for fitting, using prefit if available.
+
+    Args:
+        data: Formatted keypoint data
+        metadata: Metadata dictionary
+        pca: PCA object
+        kpms_dj_config_dict: KPMS config dictionary
+        pre_model: Path to prefit model file (if available)
+        full_kappa: Kappa value for model fitting
+        full_latent_dim: Latent dimension for model fitting
+
+    Returns:
+        Initialized model ready for fitting
+
+    Raises:
+        ValueError: If model initialization fails
+    """
+    import jax_moseq
+    from keypoint_moseq import init_model, update_hypparams
+
+    if pre_model is not None:
+        return pre_model
+
+    data = jax_moseq.utils.debugging.convert_data_precision(data)
+    model_to_fit = init_model(
+        data=data, metadata=metadata, pca=pca, **kpms_dj_config_dict
+    )
+    model_to_fit = update_hypparams(
+        model_to_fit,
+        kappa=float(full_kappa),
+        latent_dim=int(full_latent_dim),
+    )
+    return model_to_fit
+
+
+def find_prefit_model(
+    prefit_task_table,
+    prefit_file_table,
+    key: Dict[str, Any],
+    full_kappa: float,
+    full_latent_dim: int,
+) -> Union[str, Path, None]:
+    """Find the best PreFit model to use as warm start.
+
+    Args:
+        prefit_task_table: PreFitTask DataJoint table
+        prefit_file_table: PreFit.File DataJoint table
+        key: Primary key for querying
+        full_kappa: Kappa value to match
+        full_latent_dim: Latent dimension to match
+
+    Returns:
+        Path to prefit model file if found, None otherwise
+    """
+    pre_model_key_query = (
+        prefit_task_table
+        & key
+        & {
+            "pre_kappa": full_kappa,
+            "pre_latent_dim": full_latent_dim,
+        }
+    )
+    if pre_model_key_query:
+        best_prefit_key = pre_model_key_query.fetch(
+            "KEY", order_by="pre_num_iterations desc", limit=1, as_dict=True
+        )
+        if best_prefit_key:
+            pre_model_key = best_prefit_key[0]
+            pre_model = (
+                prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
+            ).fetch1("file_path")
+            logger.info(f"Using PreFit model {pre_model_key} as warm start for FullFit")
+            return pre_model
+    return None

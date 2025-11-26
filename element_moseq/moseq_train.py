@@ -1457,41 +1457,9 @@ class FullFit(dj.Computed):
         fitting_progress_plot_pdf: attach
         """
 
-    def make(self, key):
-        """
-        Fit the complete Keypoint-SLDS model with spatial and temporal dynamics.
-
-        Args:
-            key (dict): Dictionary with the `FullFitTask` Key.
-
-        Raises:
-            FileNotFoundError: No PCA model found in project directory.
-
-        High-Level Logic:
-        1. Fetch project output directory and model parameters.
-        2. Update configuration with latent dimension and kappa values.
-        3. Load PCA model and format keypoint data.
-        4. Initialize and fit Keypoint-SLDS model.
-        5. Reindex syllable labels by frequency.
-        6. Calculate fitting duration and insert results.
-        """
-        import jax
-
-        jax.config.update("jax_enable_x64", True)
-
-        from keypoint_moseq import (
-            fit_model,
-            format_data,
-            init_model,
-            load_pca,
-            reindex_syllables_in_checkpoint,
-            update_hypparams,
-        )
-
-        kpms_project_output_dir = find_full_path(
-            get_kpms_processed_data_dir(),
-            (PCATask & key).fetch1("kpms_project_output_dir"),
-        )
+    def make_fetch(self, key):
+        """Fetch required data for FullFit from database tables."""
+        kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
         full_latent_dim, full_kappa, full_num_iterations, task_mode, model_name = (
             FullFitTask & key
         ).fetch1(
@@ -1502,124 +1470,133 @@ class FullFit(dj.Computed):
             "model_name",
         )
 
+        pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
+        use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
+
+        # Convert numpy types to Python native types for referential integrity
+        full_latent_dim = int(full_latent_dim)
+        full_kappa = float(full_kappa)
+        full_num_iterations = int(full_num_iterations)
+        average_frame_rate = int(
+            average_frame_rate
+        )  # Must be int for filter_size parameter
+
+        # Convert list to tuple for immutability
+        use_bodyparts = tuple(use_bodyparts) if use_bodyparts else ()
+
+        # Normalize paths to strings to ensure consistency
+        # DataJoint filepath types may return Path objects or strings, so convert to string
+        kpms_project_output_dir = str(kpms_project_output_dir)
+        pca_path = str(pca_path)
+
+        return (
+            kpms_project_output_dir,
+            full_latent_dim,
+            full_kappa,
+            full_num_iterations,
+            task_mode,
+            model_name,
+            pca_path,
+            use_bodyparts,
+            average_frame_rate,
+        )
+
+    def make_compute(  # noqa: C901
+        self,
+        key,
+        kpms_project_output_dir,
+        full_latent_dim,
+        full_kappa,
+        full_num_iterations,
+        task_mode,
+        model_name,
+        pca_path,
+        use_bodyparts,
+        average_frame_rate,
+    ):
+        """Compute FullFit model fitting."""
+        import pickle
+
+        import jax
+        from keypoint_moseq import (
+            fit_model,
+            load_checkpoint,
+            reindex_syllables_in_checkpoint,
+        )
+
+        execution_time = datetime.now(timezone.utc)
+
+        # Convert tuple back to list for use in computation
+        use_bodyparts = list(use_bodyparts) if use_bodyparts else []
+
+        # Resolve relative paths to absolute paths
+        kpms_project_output_dir = find_full_path(
+            get_kpms_processed_data_dir(), kpms_project_output_dir
+        )
+        pca_path = find_full_path(get_kpms_processed_data_dir(), pca_path)
+
         if task_mode == "trigger":
-            import pickle
-
-            # Configure JAX precision
-            import jax
-            from keypoint_moseq import estimate_sigmasq_loc, load_checkpoint
-
             jax.config.update("jax_enable_x64", True)
 
-            kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1(
-                "config_file"
+            # Construct config file path
+            kpms_dj_config_abs_path = kpms_reader._kpms_dj_config_path(
+                kpms_project_output_dir
             )
-            kpms_dj_config_abs_path = find_full_path(
-                get_kpms_processed_data_dir(), kpms_dj_config_abs_path
-            )
-            pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
-            pca = load_pca(Path(pca_path).parent.as_posix())
+
+            # Fetch coordinates and confidences
             coordinates, confidences = (PreProcessing & key).fetch1(
                 "coordinates", "confidences"
             )
-            use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
 
-            data, metadata = format_data(
+            # Prepare data and config
+            (
+                data,
+                metadata,
+                kpms_dj_config_dict,
+                pca,
+            ) = kpms_reader.prepare_fitting_data_and_config(
+                config_path=kpms_dj_config_abs_path,
+                pca_path=pca_path,
                 coordinates=coordinates,
                 confidences=confidences,
                 use_bodyparts=use_bodyparts,
-            )
-            average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
-
-            kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
-                config_path=kpms_dj_config_abs_path, build_indexes=False
-            )
-
-            sigmasq_loc_val = float(
-                estimate_sigmasq_loc(
-                    data["Y"], data["mask"], filter_size=average_frame_rate
-                )
+                average_frame_rate=average_frame_rate,
+                latent_dim=full_latent_dim,
+                kappa=full_kappa,
+                get_kpms_processed_data_dir=get_kpms_processed_data_dir,
+                find_full_path=find_full_path,
             )
 
-            # Update and save config to disk
-            _ = kpms_reader.update_kpms_dj_config(
-                config_dict=kpms_dj_config_dict,
-                config_path=str(kpms_dj_config_abs_path),
-                latent_dim=int(full_latent_dim),
-                kappa=float(full_kappa),
-                sigmasq_loc=sigmasq_loc_val,
-            )
-
-            # Load config with indexes for model initialization
-            kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
-                config_path=kpms_dj_config_abs_path, build_indexes=True
-            )
-
-            # Determine model directory name for outputs
+            # Generate model name if not provided
             if model_name is None or not str(model_name).strip():
                 model_name = f"latent_dim_{int(full_latent_dim)}_kappa_{float(full_kappa)}_iters_{int(full_num_iterations)}"
             else:
                 model_name = str(model_name)
 
-            # Try to load pre-fit model for the same latent_dim and kappa values
-            pre_model = None
-            # More optimal: check existence before fetching to avoid try/except
-            pre_model_key_query = (
-                PreFitTask
-                & {"kpset_id": key["kpset_id"], "bodyparts_id": key["bodyparts_id"]}
-                & {
-                    "pre_kappa": key["full_kappa"],
-                    "pre_latent_dim": key["full_latent_dim"],
-                }
+            # Find prefit model
+            pre_model = kpms_reader.find_prefit_model(
+                PreFitTask, PreFit.File, key, full_kappa, full_latent_dim
             )
-            if pre_model_key_query:
-                # Fetch all matching PreFit models with their number of iterations
-                # Select the one with the highest pre_num_iterations for best warm start
-                prefit_entries = pre_model_key_query.fetch(
-                    "KEY", "pre_num_iterations", as_dict=True
-                )
-                if prefit_entries:
-                    # Sort by pre_num_iterations descending and take the first (highest)
-                    prefit_entries.sort(
-                        key=lambda x: x["pre_num_iterations"], reverse=True
-                    )
-                    pre_model_key = prefit_entries[0]["KEY"]
-                    pre_model = (
-                        PreFit.File & pre_model_key & 'file_name="model_data.pkl"'
-                    ).fetch1("file_path")
-                    logger.info(
-                        f"Using PreFit model {pre_model_key} (pre_num_iterations={prefit_entries[0]['pre_num_iterations']}) as warm start for FullFit"
-                    )
 
-            execution_time = datetime.now(timezone.utc)
-
+            # Initialize model
             try:
-                # Initialize model: Use PreFit if available, otherwise initialize fresh
-                if pre_model is not None:
-                    model_to_fit = pre_model
-                else:
-                    data = jax_moseq.utils.debugging.convert_data_precision(data)
-
-                    # Only initialize fresh model if no PreFit available
-                    model_to_fit = init_model(
-                        data=data, metadata=metadata, pca=pca, **kpms_dj_config_dict
-                    )
-                    # Update the model hyperparameters
-                    model_to_fit = update_hypparams(
-                        model_to_fit,
-                        kappa=float(full_kappa),
-                        latent_dim=int(full_latent_dim),
-                    )
+                model_to_fit = kpms_reader.initialize_model_for_fitting(
+                    data,
+                    metadata,
+                    pca,
+                    kpms_dj_config_dict,
+                    pre_model,
+                    full_kappa,
+                    full_latent_dim,
+                )
             except Exception as e:
                 raise ValueError(f"Model initialization failed: {e}")
 
-            # Fit the model
-            from jax_moseq.utils import set_mixed_map_gpus
+            # Setup GPU optimization
+            kpms_reader.setup_gpu_optimization()
 
-            set_mixed_map_gpus(6)
-
-            logger.info("Using set_mixed_map_gpus(6) to reduce GPU memory usage")
-
+            # Fit model
             model, model_name = fit_model(
                 model=model_to_fit,
                 model_name=model_name,
@@ -1629,13 +1606,13 @@ class FullFit(dj.Computed):
                 ar_only=False,
                 num_iters=full_num_iterations,
                 generate_progress_plots=True,
-                save_every_n_iters=5,
+                save_every_n_iters=25,
                 verbose=False,
                 parallel_message_passing=False,
             )
 
+            # Reindex syllables
             try:
-                # Reindex the syllables in the checkpoint file
                 reindex_syllables_in_checkpoint(
                     project_dir=kpms_project_output_dir.as_posix(),
                     model_name=model_name,
@@ -1645,7 +1622,7 @@ class FullFit(dj.Computed):
                     f"Reindexing syllables failed due to FullFit training failure: {e}"
                 )
 
-            # Create a PNG version of the PDF progress plot
+            # Get plot paths
             model_name_full_path = find_full_path(kpms_project_output_dir, model_name)
             pdf_path = model_name_full_path / "fitting_progress.pdf"
             png_path = model_name_full_path / "fitting_progress.png"
@@ -1656,8 +1633,14 @@ class FullFit(dj.Computed):
                 )
             else:
                 logger.warning(f"No progress PDF found at {pdf_path}")
+
+            # Find checkpoint file
+            checkpoint_file = kpms_reader.find_checkpoint_file(model_name_full_path)
+
+            completion_time = datetime.now(timezone.utc)
+            duration_seconds = (completion_time - execution_time).total_seconds()
         else:
-            # Load mode must specify a model_name
+            # Load mode
             if model_name is None or not str(model_name).strip():
                 raise ValueError("`model_name` is required when task_mode='load'")
 
@@ -1665,7 +1648,12 @@ class FullFit(dj.Computed):
             pdf_path = model_name_full_path / "fitting_progress.pdf"
             png_path = model_name_full_path / "fitting_progress.png"
 
-        # Get the path to the updated config file
+            checkpoint_file = kpms_reader.find_checkpoint_file(model_name_full_path)
+            model, _, _, _ = load_checkpoint(path=checkpoint_file)
+
+            duration_seconds = None
+
+        # Validate plot files
         if not pdf_path.exists():
             raise FileNotFoundError(
                 f"FullFit PDF progress plot not found at {pdf_path}"
@@ -1675,31 +1663,40 @@ class FullFit(dj.Computed):
                 f"FullFit PNG progress plot not found at {png_path}"
             )
 
-        # Find checkpoint file
-        checkpoint_files = []
-        for pattern in ("checkpoint*", "*.h5"):
-            checkpoint_files.extend(model_name_full_path.glob(pattern))
-        if checkpoint_files:
-            checkpoint_file = max(checkpoint_files, key=lambda f: f.stat().st_mtime)
-        else:
-            raise FileNotFoundError(
-                f"No checkpoint files found in {model_name_full_path}"
-            )
-
-        # Save model dictionary as pickle file in the model directory
+        # Save model dictionary as pickle file
         model_data_filename = "model_data.pkl"
         model_data_file = model_name_full_path / model_data_filename
         with open(model_data_file, "wb") as f:
             pickle.dump(model, f)
 
         file_paths = [checkpoint_file, model_data_file]
-
-        completion_time = datetime.now(timezone.utc)
-        duration_seconds = (
-            (completion_time - execution_time).total_seconds()
-            if task_mode == "trigger"
-            else None
+        kpms_dj_config_full_path = kpms_reader._kpms_dj_config_path(
+            kpms_project_output_dir
         )
+
+        return (
+            model_name,
+            pdf_path,
+            png_path,
+            file_paths,
+            kpms_dj_config_full_path,
+            duration_seconds,
+            kpms_project_output_dir,
+        )
+
+    def make_insert(
+        self,
+        key,
+        model_name,
+        pdf_path,
+        png_path,
+        file_paths,
+        kpms_dj_config_full_path,
+        duration_seconds,
+        kpms_project_output_dir,
+    ):
+        """Insert FullFit results into database tables."""
+        completion_time = datetime.now(timezone.utc)
 
         self.insert1(
             {
@@ -1727,7 +1724,7 @@ class FullFit(dj.Computed):
         self.ConfigFile.insert1(
             {
                 **key,
-                "config_file": kpms_dj_config_abs_path,
+                "config_file": kpms_dj_config_full_path,
             }
         )
 
@@ -1807,9 +1804,6 @@ class SelectedFullFit(dj.Manual):
         Args:
             key (dict): FullFit key to filter models.
             model_desc (str): Description for the selected model.
-
-        Returns:
-            dict: The key of the selected model (FullFit primary key).
         """
         # Get all models with their scores for this specific PCAFit
         models_with_scores = (FullFit * ModelScore & key).fetch()
@@ -1839,5 +1833,3 @@ class SelectedFullFit(dj.Manual):
             },
             skip_duplicates=True,
         )
-
-        return best_model_key
