@@ -646,6 +646,7 @@ def prepare_fitting_data_and_config(
     average_frame_rate: float,
     latent_dim: int,
     kappa: float,
+    get_kpms_root_data_dir,
     get_kpms_processed_data_dir,
     find_full_path,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Any]:
@@ -668,6 +669,7 @@ def prepare_fitting_data_and_config(
         average_frame_rate: Average frame rate for sigmasq_loc estimation
         latent_dim: Latent dimension for model fitting
         kappa: Kappa value for model fitting
+        get_kpms_root_data_dir: Function to get root data directory
         get_kpms_processed_data_dir: Function to get processed data directory
         find_full_path: Function to resolve full paths
 
@@ -681,8 +683,7 @@ def prepare_fitting_data_and_config(
     from keypoint_moseq import estimate_sigmasq_loc, format_data, load_pca
 
     # Resolve config path
-    kpms_dj_config_abs_path = find_full_path(get_kpms_processed_data_dir(), config_path)
-
+    kpms_dj_config_abs_path = find_full_path(get_kpms_root_data_dir(), config_path)
     # Load PCA
     pca = load_pca(str(Path(pca_path).parent))
 

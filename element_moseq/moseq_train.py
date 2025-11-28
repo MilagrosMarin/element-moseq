@@ -1564,6 +1564,7 @@ class FullFit(dj.Computed):
                 average_frame_rate=average_frame_rate,
                 latent_dim=full_latent_dim,
                 kappa=full_kappa,
+                get_kpms_root_data_dir=get_kpms_root_data_dir,
                 get_kpms_processed_data_dir=get_kpms_processed_data_dir,
                 find_full_path=find_full_path,
             )
