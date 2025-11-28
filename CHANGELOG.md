@@ -3,6 +3,24 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.2.1] - 2025-11-26
++ Fix - Fix `KeyError` in `FullFit` when querying `PreFitTask`
++ Fix - Set `set_mixed_map_gpus` to 6 in `FullFit` to reduce GPU memory usage
++ Fix - Minor fix in position of `datetime.now` in `PreProcessing`
++ Update - Refactor `TrajectoryPlot` to use `video_paths` if available and complete, or use `video_dir` as fallback
++ Update - Add 3-part make pattern in `TrajectoryPlot`, refactor into helper functions and cleanup in `moseq_report`
++ Update - Refactor `FullFit` to use 3-part make pattern
++ Update - Set `save_every_n_iters` in `moseq_train` for improved checkpoint management
++ Update - Increase video duration in `PreProcessingQA` to 10 seconds by default
++ Add - Save coordinates and confidences as pickle files during `trigger` mode in `Inference`
++ Add - Revert overlaying keypoints over the grid movies
++ Add - Add clarifying comments in codebase
++ Add - Apply black formatting over `moseq_infer`
++ Add - Cleanup `moseq_infer.py` and `moseq_train.py`
++ Add - Add comments in `kpms_reader.py`
++ Add - Refactor `viz_utils.py` module
+
+
 ## [1.2.0] - 2025-11-13
 > **BREAKING CHANGES** - This version contains breaking changes due to keypoint-moseq upgrade and API refactoring. Please review the changes below and update your code accordingly.
 
