@@ -1530,6 +1530,13 @@ class FullFit(dj.Computed):
         # Convert tuple back to list for use in computation
         use_bodyparts = list(use_bodyparts) if use_bodyparts else []
 
+        # Convert average_frame_rate to integer scalar (handle tuple/array case)
+        average_frame_rate = int(
+            average_frame_rate[0]
+            if isinstance(average_frame_rate, (tuple, list))
+            else average_frame_rate
+        )
+
         # Resolve relative paths to absolute paths
         kpms_project_output_dir = find_full_path(
             get_kpms_processed_data_dir(), kpms_project_output_dir
@@ -1564,7 +1571,6 @@ class FullFit(dj.Computed):
                 average_frame_rate=average_frame_rate,
                 latent_dim=full_latent_dim,
                 kappa=full_kappa,
-                get_kpms_root_data_dir=get_kpms_root_data_dir,
                 get_kpms_processed_data_dir=get_kpms_processed_data_dir,
                 find_full_path=find_full_path,
             )
@@ -1596,9 +1602,6 @@ class FullFit(dj.Computed):
 
             # Ensure data precision is converted before fit_model
             data = jax_moseq.utils.debugging.convert_data_precision(data)
-
-            # Setup GPU optimization
-            kpms_reader.setup_gpu_optimization()
 
             # Fit model
             model, model_name = fit_model(
