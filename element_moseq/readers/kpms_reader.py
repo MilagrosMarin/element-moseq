@@ -646,7 +646,6 @@ def prepare_fitting_data_and_config(
     average_frame_rate: float,
     latent_dim: int,
     kappa: float,
-    get_kpms_root_data_dir,
     get_kpms_processed_data_dir,
     find_full_path,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Any]:
@@ -669,8 +668,7 @@ def prepare_fitting_data_and_config(
         average_frame_rate: Average frame rate for sigmasq_loc estimation
         latent_dim: Latent dimension for model fitting
         kappa: Kappa value for model fitting
-        get_kpms_root_data_dir: Function to get root data directory
-        get_kpms_processed_data_dir: Function to get processed data directory
+        get_kpms_processed_data_dir: Function to get processed data directory or processed data directory path
         find_full_path: Function to resolve full paths
 
     Returns:
@@ -683,7 +681,7 @@ def prepare_fitting_data_and_config(
     from keypoint_moseq import estimate_sigmasq_loc, format_data, load_pca
 
     # Resolve config path
-    kpms_dj_config_abs_path = find_full_path(get_kpms_root_data_dir(), config_path)
+    kpms_dj_config_abs_path = find_full_path(get_kpms_processed_data_dir(), config_path)
     # Load PCA
     pca = load_pca(str(Path(pca_path).parent))
 
@@ -739,28 +737,6 @@ def find_checkpoint_file(model_name_full_path: Union[str, os.PathLike]) -> Path:
     if checkpoint_files:
         return max(checkpoint_files, key=lambda f: f.stat().st_mtime)
     raise FileNotFoundError(f"No checkpoint files found in {model_name_full_path}")
-
-
-def setup_gpu_optimization():
-    """Setup GPU optimization if available.
-
-    Attempts to set mixed map GPUs to reduce GPU memory usage.
-    Logs warnings if GPU optimization is not available.
-    """
-    try:
-        import jax
-        from jax_moseq.utils import set_mixed_map_gpus
-
-        devices = jax.devices()
-        if devices and devices[0].platform == "gpu":
-            set_mixed_map_gpus(6)
-            logger.info("Using set_mixed_map_gpus(6) to reduce GPU memory usage")
-        else:
-            logger.info("GPU not available, skipping set_mixed_map_gpus")
-    except (ImportError, AttributeError, IndexError) as e:
-        logger.warning(
-            f"set_mixed_map_gpus not available: {e}. Proceeding without GPU optimization."
-        )
 
 
 def initialize_model_for_fitting(
@@ -826,23 +802,33 @@ def find_prefit_model(
     Returns:
         Path to prefit model file if found, None otherwise
     """
-    pre_model_key_query = (
+    best_prefit_key = (
         prefit_task_table
         & key
         & {
             "pre_kappa": full_kappa,
             "pre_latent_dim": full_latent_dim,
         }
-    )
-    if pre_model_key_query:
-        best_prefit_key = pre_model_key_query.fetch(
-            "KEY", order_by="pre_num_iterations desc", limit=1, as_dict=True
+    ).fetch("KEY", order_by="pre_num_iterations desc", limit=1, as_dict=True)
+
+    if best_prefit_key:
+        pre_model_key = best_prefit_key[0]
+        prefit_file_query = (
+            prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
         )
-        if best_prefit_key:
-            pre_model_key = best_prefit_key[0]
-            pre_model = (
-                prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
-            ).fetch1("file_path")
+        if prefit_file_query:
+            pre_model = prefit_file_query.fetch1("file_path")
             logger.info(f"Using PreFit model {pre_model_key} as warm start for FullFit")
             return pre_model
+        else:
+            logger.info(
+                f"PreFit model key {pre_model_key} found but model_data.pkl file not found. "
+                "Initializing model from scratch."
+            )
+    else:
+        logger.info(
+            f"No PreFit tasks found matching kappa={full_kappa}, "
+            f"latent_dim={full_latent_dim} for key {key}. "
+            "Initializing model from scratch."
+        )
     return None
