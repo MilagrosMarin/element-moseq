@@ -1269,18 +1269,6 @@ class PreFit(dj.Computed):
 
             execution_time = datetime.now(timezone.utc)
 
-            # Set mixed map iterations to reduce GPU memory usage by processing data in batches
-            # try:
-            #     from jax_moseq.utils import set_mixed_map_iters
-
-            #     set_mixed_map_iters(4)
-            #     logger.info("Using set_mixed_map_iters(4) to reduce GPU memory usage")
-            # except (ImportError, AttributeError):
-            #     logger.warning(
-            #         "set_mixed_map_iters not available in this version of jax_moseq. "
-            #         "Proceeding without batch processing."
-            #     ) #TODO: remove this after testing
-
             # Fit the model
             model, _ = fit_model(
                 model=model,
@@ -1375,6 +1363,60 @@ class PreFit(dj.Computed):
                 "fitting_progress_plot_pdf": pdf_path,
             }
         )
+
+
+@schema
+class PreFitQA(dj.Computed):
+    """Compute syllable quality metrics for PreFit models.
+
+    Attributes:
+        PreFit (foreign key)                    : `PreFit` Key
+        num_syllables (int)                       : Number of unique syllables discovered
+        median_syllable_duration_frames (float)   : Median syllable duration in frames
+        median_syllable_duration_seconds (float)  : Median syllable duration in seconds
+        mean_syllable_duration_frames (float)     : Mean syllable duration in frames
+        min_syllable_duration_frames (int)        : Minimum syllable duration in frames
+        max_syllable_duration_frames (int)        : Maximum syllable duration in frames
+        std_syllable_duration_frames (float)      : Standard deviation of syllable durations in frames
+        is_duration_in_target_range (tinyint)      : Whether median duration is in target range (0.3-0.4 seconds)
+    """
+
+    definition = """
+    -> PreFit
+    ---
+    num_syllables=NULL           : int
+    median_syllable_duration_frames=NULL : float
+    median_syllable_duration_seconds=NULL : float
+    mean_syllable_duration_frames=NULL : float
+    min_syllable_duration_frames=NULL : int
+    max_syllable_duration_frames=NULL : int
+    std_syllable_duration_frames=NULL : float
+    is_duration_in_target_range=NULL : tinyint
+    """
+
+    def make(self, key):
+        """Compute syllable quality metrics for PreFit models.
+
+        This table computes syllable quality metrics from PreFit checkpoint files,
+        including syllable counts and duration statistics. These metrics are useful
+        for evaluating model quality and determining appropriate kappa values.
+        """
+        # Get checkpoint file path and resolve to absolute path
+        checkpoint_file = (
+            PreFit.File & key & 'file_name LIKE "%checkpoint.h5"'
+        ).fetch1("file_path")
+        checkpoint_file = find_full_path(get_kpms_processed_data_dir(), checkpoint_file)
+
+        # Get average frame rate for converting to seconds
+        average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
+
+        # Compute aggregate metrics (median, mean, std, etc.)
+        aggregate_metrics = kpms_reader.compute_syllable_metrics(
+            checkpoint_file=checkpoint_file, fps=float(average_frame_rate)
+        )
+
+        # Insert aggregate results
+        self.insert1({**key, **aggregate_metrics})
 
 
 @schema
@@ -1742,6 +1784,64 @@ class FullFit(dj.Computed):
                 "fitting_progress_plot_pdf": pdf_path,
             }
         )
+
+
+@schema
+class FullFitQA(dj.Computed):
+    """Compute syllable quality metrics for FullFit models.
+
+    Attributes:
+        FullFit (foreign key)                    : `FullFit` Key
+        num_syllables (int)                        : Number of unique syllables discovered
+        median_syllable_duration_frames (float)   : Median syllable duration in frames
+        median_syllable_duration_seconds (float)  : Median syllable duration in seconds
+        mean_syllable_duration_frames (float)     : Mean syllable duration in frames
+        min_syllable_duration_frames (int)         : Minimum syllable duration in frames
+        max_syllable_duration_frames (int)         : Maximum syllable duration in frames
+        std_syllable_duration_frames (float)       : Standard deviation of syllable durations in frames
+        p25_syllable_duration_frames (float)       : 25th percentile duration in frames (IQR lower bound)
+        p25_syllable_duration_seconds (float)      : 25th percentile duration in seconds
+        p75_syllable_duration_frames (float)       : 75th percentile duration in frames (IQR upper bound)
+        p75_syllable_duration_seconds (float)      : 75th percentile duration in seconds
+        is_duration_in_target_range (tinyint)       : Whether median duration is in target range (0.3-0.4 seconds)
+    """
+
+    definition = """
+    -> FullFit
+    ---
+    num_syllables=NULL           : int
+    median_syllable_duration_frames=NULL : float
+    median_syllable_duration_seconds=NULL : float
+    mean_syllable_duration_frames=NULL : float
+    min_syllable_duration_frames=NULL : int
+    max_syllable_duration_frames=NULL : int
+    std_syllable_duration_frames=NULL : float
+    is_duration_in_target_range=NULL : tinyint
+    """
+
+    def make(self, key):
+        """Compute syllable quality metrics for FullFit models.
+
+        This table computes syllable quality metrics from FullFit checkpoint files,
+        including syllable counts and duration statistics. These metrics are useful
+        for evaluating model quality and determining appropriate kappa values.
+        """
+        # Get checkpoint file path and resolve to absolute path
+        checkpoint_file = (
+            FullFit.File & key & 'file_name LIKE "%checkpoint.h5"'
+        ).fetch1("file_path")
+        checkpoint_file = find_full_path(get_kpms_processed_data_dir(), checkpoint_file)
+
+        # Get average frame rate for converting to seconds
+        average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
+
+        # Compute aggregate metrics (median, mean, std, etc.)
+        aggregate_metrics = kpms_reader.compute_syllable_metrics(
+            checkpoint_file=checkpoint_file, fps=float(average_frame_rate)
+        )
+
+        # Insert aggregate results
+        self.insert1({**key, **aggregate_metrics})
 
 
 @schema

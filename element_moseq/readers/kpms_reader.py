@@ -832,3 +832,152 @@ def find_prefit_model(
             "Initializing model from scratch."
         )
     return None
+
+
+def compute_syllable_metrics(
+    checkpoint_file: Union[str, os.PathLike], fps: float
+) -> Dict[str, Any]:
+    """Compute syllable quality metrics from checkpoint file.
+
+    This function extracts syllable sequences from a checkpoint file and computes
+    aggregate statistics about syllable durations, which are useful for evaluating
+    model quality and determining appropriate kappa values.
+
+    Args:
+        checkpoint_file: Path to checkpoint.h5 file
+        fps: Frames per second for converting durations to seconds
+
+    Returns:
+        Dictionary with aggregate syllable quality metrics:
+            - num_syllables: Number of unique syllables discovered
+            - median_syllable_duration_frames: Median duration in frames
+            - median_syllable_duration_seconds: Median duration in seconds
+            - mean_syllable_duration_frames: Mean duration in frames
+            - min_syllable_duration_frames: Minimum duration in frames
+            - max_syllable_duration_frames: Maximum duration in frames
+            - std_syllable_duration_frames: Standard deviation in frames
+            - is_duration_in_target_range: Boolean indicating if median is in target range (0.3-0.4 seconds)
+
+    Raises:
+        FileNotFoundError: If checkpoint file doesn't exist
+        ValueError: If checkpoint doesn't contain syllable sequences
+    """
+    from keypoint_moseq import load_checkpoint
+
+    checkpoint_path = Path(checkpoint_file)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_file}")
+
+    # Load checkpoint
+    model, data, _, _ = load_checkpoint(path=str(checkpoint_path))
+
+    # Extract syllable sequences (z) from all videos
+    if "states" not in model or "z" not in model["states"]:
+        raise ValueError(
+            "Checkpoint does not contain syllable sequences (model['states']['z'])"
+        )
+
+    z_sequences = model["states"]["z"]
+
+    # Check if z_sequences is empty
+    # Handle both dict and array cases
+    if isinstance(z_sequences, dict):
+        if len(z_sequences) == 0:
+            raise ValueError("No syllable sequences found in checkpoint")
+    elif isinstance(z_sequences, np.ndarray):
+        if z_sequences.size == 0:
+            raise ValueError("No syllable sequences found in checkpoint")
+        # Convert single array to dict format for consistency
+        z_sequences = {"video_0": z_sequences}
+    else:
+        # Try to get length, if that fails, it's probably empty
+        try:
+            if len(z_sequences) == 0:
+                raise ValueError("No syllable sequences found in checkpoint")
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Unexpected format for z_sequences: {type(z_sequences)}. "
+                "Expected dict or numpy array."
+            )
+
+    # Compute durations for all syllables across all videos
+    all_durations = []
+
+    # Track unique syllable IDs (only needed for counting unique syllables)
+    unique_syllable_ids = set()
+
+    for video_key, z in z_sequences.items():
+        # Convert to numpy array if needed
+        z_array = np.array(z).flatten()
+
+        if len(z_array) == 0:
+            continue
+
+        # Find syllable boundaries (where syllable changes)
+        if len(z_array) > 1:
+            # Find transitions between syllables
+            # np.diff finds where consecutive elements differ
+            # +1 because diff returns indices of the first element of each pair
+            boundaries = np.where(np.diff(z_array) != 0)[0] + 1
+
+            if len(boundaries) > 0:
+                # Compute durations between boundaries
+                # segment_starts: [0, boundary1, boundary2, ...]
+                # segment_ends: [boundary1, boundary2, ..., len(z_array)]
+                segment_starts = np.concatenate([[0], boundaries])
+                segment_ends = np.concatenate([boundaries, [len(z_array)]])
+                durations = segment_ends - segment_starts
+
+                # Track unique syllable IDs
+                unique_syllable_ids.update(z_array[segment_starts].astype(int))
+
+                all_durations.extend(durations.tolist())
+            else:
+                # Single syllable for entire video (no transitions)
+                syllable_id = int(z_array[0])
+                unique_syllable_ids.add(syllable_id)
+                duration = int(len(z_array))
+                all_durations.append(duration)
+        else:
+            # Single frame
+            syllable_id = int(z_array[0])
+            unique_syllable_ids.add(syllable_id)
+            all_durations.append(1)
+
+    if len(all_durations) == 0:
+        raise ValueError("No syllable durations could be computed from checkpoint")
+
+    if len(unique_syllable_ids) == 0:
+        raise ValueError("No syllables found in checkpoint")
+
+    all_durations = np.array(all_durations, dtype=float)
+
+    # Compute aggregate statistics
+    num_unique_syllables = len(unique_syllable_ids)
+    median_duration_frames = float(np.median(all_durations))
+    median_duration_seconds = median_duration_frames / fps
+    mean_duration_frames = float(np.mean(all_durations))
+    min_duration_frames = int(np.min(all_durations))
+    max_duration_frames = int(np.max(all_durations))
+    std_duration_frames = float(np.std(all_durations))
+
+    # Target range check (from reference script: 0.3-0.4 seconds, or 30-40% of fps in frames)
+    # This is the key metric for kappa optimization - matches is_duration_in_range() function
+    TARGET_MIN_SECONDS = 0.3
+    TARGET_MAX_SECONDS = 0.4
+    is_duration_in_target_range = (
+        TARGET_MIN_SECONDS <= median_duration_seconds <= TARGET_MAX_SECONDS
+    )
+
+    aggregate_metrics = {
+        "num_syllables": num_unique_syllables,
+        "median_syllable_duration_frames": median_duration_frames,
+        "median_syllable_duration_seconds": median_duration_seconds,
+        "mean_syllable_duration_frames": mean_duration_frames,
+        "min_syllable_duration_frames": min_duration_frames,
+        "max_syllable_duration_frames": max_duration_frames,
+        "std_syllable_duration_frames": std_duration_frames,
+        "is_duration_in_target_range": bool(is_duration_in_target_range),
+    }
+
+    return aggregate_metrics
