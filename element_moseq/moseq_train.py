@@ -1827,10 +1827,19 @@ class FullFitQA(dj.Computed):
         for evaluating model quality and determining appropriate kappa values.
         """
         # Get checkpoint file path and resolve to absolute path
-        checkpoint_file = (
-            FullFit.File & key & 'file_name LIKE "%checkpoint.h5"'
-        ).fetch1("file_path")
+        checkpoint_file_query = FullFit.File & key & 'file_name LIKE "%checkpoint.h5"'
+        if not checkpoint_file_query:
+            raise FileNotFoundError(
+                f"No checkpoint file found for FullFit key {key}. "
+                "Ensure FullFit.File entries are populated."
+            )
+        checkpoint_file = checkpoint_file_query.fetch1("file_path")
         checkpoint_file = find_full_path(get_kpms_processed_data_dir(), checkpoint_file)
+
+        if not checkpoint_file.exists():
+            raise FileNotFoundError(
+                f"Checkpoint file not found at resolved path: {checkpoint_file}"
+            )
 
         # Get average frame rate for converting to seconds
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
