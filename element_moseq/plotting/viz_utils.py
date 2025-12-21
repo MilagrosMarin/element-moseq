@@ -24,13 +24,20 @@ def extract_base_video_key(video_key: str) -> str:
     """Extract base video name from video key (removes DLC suffix if present).
 
     Args:
-        video_key: Video key from results.h5 (may include DLC suffix, e.g. '21_11_8_one_mouseDLC_resnet50_OFT_FPApr14shuffle1_100000')
+        video_key: Video key from results.h5 (may include DLC suffix, e.g. '21_11_8_one_mouseDLC_resnet50_OFT_FPApr14shuffle1_100000' or '21_11_8_one_mouse.top.irDLC_resnet50_moseq_exampleAug21shuffle1_500000')
 
     Returns:
-        Base video key (name before "DLC" suffix if present, otherwise original key, e.g. '21_11_8_one_mouse')
+        Base video key (name before "DLC" or "irDLC" suffix if present, otherwise original key, e.g. '21_11_8_one_mouse')
     """
+    # Handle various DLC suffix patterns
+    if ".irDLC" in video_key:
+        return video_key.split(".irDLC")[0]
+    if "irDLC" in video_key:
+        return video_key.split("irDLC")[0]
     if "DLC" in video_key:
         return video_key.split("DLC")[0]
+    if video_key.endswith("-tracking"):
+        return video_key[:-9]  # Remove "-tracking" suffix
     return video_key
 
 
@@ -72,13 +79,44 @@ def match_video_keys_to_file_paths(video_keys, file_ids, file_paths, video_only=
 
         for file_id, file_path in zip(file_ids, file_paths):
             file_stem = Path(file_path).stem
-            # Try exact match first, then base name match
+
+            # Try multiple matching strategies in order of specificity:
+            # 1. Exact match (case-insensitive) - most specific
+            # 2. Base video key exact match (case-insensitive)
+            # 3. Partial match: check if base_video_key starts with file_stem or vice versa
+            #    (more reliable than "contains" to avoid false matches)
             if (
                 vid_key == file_stem
                 or vid_key.lower() == file_stem.lower()
                 or base_video_key == file_stem
                 or base_video_key.lower() == file_stem.lower()
             ):
+                # Exact matches - highest priority
+                matched[vid_key] = (file_id, file_path)
+                break
+            elif (
+                # Partial matches - check if one starts with the other (more reliable than "contains")
+                # This handles cases like:
+                # - "21_11_8_one_mouse.top.ir" (file) vs "21_11_8_one_mouse.top.irDLC_..." (key)
+                # - "21_11_8_one_mouse.top.irDLC_..." (file) vs "21_11_8_one_mouse.top.irDLC_..." (key)
+                (
+                    len(base_video_key) > 5
+                    and len(file_stem) > 5
+                    and (
+                        file_stem.lower().startswith(base_video_key.lower())
+                        or base_video_key.lower().startswith(file_stem.lower())
+                    )
+                )
+                or (
+                    len(vid_key) > 5
+                    and len(file_stem) > 5
+                    and (
+                        file_stem.lower().startswith(vid_key.lower())
+                        or vid_key.lower().startswith(file_stem.lower())
+                    )
+                )
+            ):
+                # Partial match found - one is a prefix of the other
                 matched[vid_key] = (file_id, file_path)
                 break
 
