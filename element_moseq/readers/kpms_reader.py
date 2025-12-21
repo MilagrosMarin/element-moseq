@@ -595,6 +595,7 @@ def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
         f"{list(stem_to_video_path.keys())[:5]}..."
     )
 
+    # Match video keys from VideoSequence entries to RecordingSet.File
     for entry in video_sequence_data:
         csv_file = entry["file"]
         csv_file_path = Path(csv_file)
@@ -610,19 +611,46 @@ def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
         base_video_key = extract_base_video_key(video_key)
         video_path = None
         for stem, path in stem_to_video_path.items():
+            # Try multiple matching strategies:
+            # 1. Exact match (case-insensitive)
+            # 2. Base video key exact match (case-insensitive) - most common case
+            # 3. Prefix match: check if stem is a prefix of video_key or base_video_key
+            #    (handles cases like "21_12_10_def6a_3.top.ir" matching "21_12_10_def6a_3.top.irDLC_...")
+            # 4. Reverse prefix: check if base_video_key is a prefix of stem
+            stem_lower = stem.lower()
+            video_key_lower = video_key.lower()
+            base_video_key_lower = base_video_key.lower()
+
             if (
-                stem.lower() == video_key.lower()
-                or stem.lower() == base_video_key.lower()
+                stem_lower == video_key_lower
+                or stem_lower == base_video_key_lower
+                or (
+                    len(stem) > 5
+                    and len(video_key) > 5
+                    and video_key_lower.startswith(stem_lower)
+                )
+                or (
+                    len(stem) > 5
+                    and len(base_video_key) > 5
+                    and base_video_key_lower.startswith(stem_lower)
+                )
+                or (
+                    len(stem) > 5
+                    and len(base_video_key) > 5
+                    and stem_lower.startswith(base_video_key_lower)
+                )
             ):
                 video_path = path
                 break
 
         if video_path:
             video_paths_dict[video_key] = video_path
-            logger.info(f"Mapped video key '{video_key}' -> {video_path}")
+            logger.info(
+                f"Mapped video key '{video_key}' (base: '{base_video_key}') -> {video_path}"
+            )
         else:
             logger.warning(
-                f"✗ No video file found matching video key '{video_key}'. "
+                f"✗ No video file found matching video key '{video_key}' (base: '{base_video_key}'). "
                 f"Available stems: {list(stem_to_video_path.keys())[:5]}..."
             )
 
@@ -848,15 +876,9 @@ def compute_syllable_metrics(
         fps: Frames per second for converting durations to seconds
 
     Returns:
-        Dictionary with aggregate syllable quality metrics:
+        Dictionary with essential syllable quality metrics:
             - num_syllables: Number of unique syllables discovered
-            - median_syllable_duration_frames: Median duration in frames
-            - median_syllable_duration_seconds: Median duration in seconds
-            - mean_syllable_duration_frames: Mean duration in frames
-            - min_syllable_duration_frames: Minimum duration in frames
-            - max_syllable_duration_frames: Maximum duration in frames
-            - std_syllable_duration_frames: Standard deviation in frames
-            - is_duration_in_target_range: Boolean indicating if median is in target range (0.3-0.4 seconds)
+            - median_syllable_duration_ms: Median duration in milliseconds (KEY METRIC - target: 400ms)
 
     Raises:
         FileNotFoundError: If checkpoint file doesn't exist
@@ -952,32 +974,14 @@ def compute_syllable_metrics(
 
     all_durations = np.array(all_durations, dtype=float)
 
-    # Compute aggregate statistics
+    # Compute essential statistics
     num_unique_syllables = len(unique_syllable_ids)
     median_duration_frames = float(np.median(all_durations))
-    median_duration_seconds = median_duration_frames / fps
-    mean_duration_frames = float(np.mean(all_durations))
-    min_duration_frames = int(np.min(all_durations))
-    max_duration_frames = int(np.max(all_durations))
-    std_duration_frames = float(np.std(all_durations))
-
-    # Target range check (from reference script: 0.3-0.4 seconds, or 30-40% of fps in frames)
-    # This is the key metric for kappa optimization - matches is_duration_in_range() function
-    TARGET_MIN_SECONDS = 0.3
-    TARGET_MAX_SECONDS = 0.4
-    is_duration_in_target_range = (
-        TARGET_MIN_SECONDS <= median_duration_seconds <= TARGET_MAX_SECONDS
-    )
+    median_duration_ms = (median_duration_frames / fps) * 1000.0
 
     aggregate_metrics = {
         "num_syllables": num_unique_syllables,
-        "median_syllable_duration_frames": median_duration_frames,
-        "median_syllable_duration_seconds": median_duration_seconds,
-        "mean_syllable_duration_frames": mean_duration_frames,
-        "min_syllable_duration_frames": min_duration_frames,
-        "max_syllable_duration_frames": max_duration_frames,
-        "std_syllable_duration_frames": std_duration_frames,
-        "is_duration_in_target_range": bool(is_duration_in_target_range),
+        "median_syllable_duration_ms": median_duration_ms,
     }
 
     return aggregate_metrics
