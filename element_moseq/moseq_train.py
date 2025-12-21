@@ -1369,51 +1369,63 @@ class PreFit(dj.Computed):
 class PreFitQA(dj.Computed):
     """Compute syllable quality metrics for PreFit models.
 
+    This table computes essential syllable quality metrics from PreFit checkpoint files
+    to determine the best kappa (stickiness) value. The target is a median state duration
+    of 400ms.
+
     Attributes:
         PreFit (foreign key)                    : `PreFit` Key
-        num_syllables (int)                       : Number of unique syllables discovered
-        median_syllable_duration_frames (float)   : Median syllable duration in frames
-        median_syllable_duration_seconds (float)  : Median syllable duration in seconds
-        mean_syllable_duration_frames (float)     : Mean syllable duration in frames
-        min_syllable_duration_frames (int)        : Minimum syllable duration in frames
-        max_syllable_duration_frames (int)        : Maximum syllable duration in frames
-        std_syllable_duration_frames (float)      : Standard deviation of syllable durations in frames
-        is_duration_in_target_range (tinyint)      : Whether median duration is in target range (0.3-0.4 seconds)
+        pre_kappa (int)                         : Kappa value used for this PreFit (from PreFitTask)
+        num_syllables (int)                     : Number of unique syllables discovered
+        median_syllable_duration_ms (float)     : Median syllable duration in milliseconds (target: 400ms)
     """
 
     definition = """
     -> PreFit
     ---
-    num_syllables=NULL           : int
-    median_syllable_duration_frames=NULL : float
-    median_syllable_duration_seconds=NULL : float
-    mean_syllable_duration_frames=NULL : float
-    min_syllable_duration_frames=NULL : int
-    max_syllable_duration_frames=NULL : int
-    std_syllable_duration_frames=NULL : float
-    is_duration_in_target_range=NULL : tinyint
+    pre_kappa=NULL                    : int              # Kappa value used (from PreFitTask) for easy comparison
+    num_syllables=NULL                 : int              # Number of unique syllables discovered
+    median_syllable_duration_ms=NULL  : float            # Median syllable duration in milliseconds (target: 400ms)
     """
 
     def make(self, key):
         """Compute syllable quality metrics for PreFit models.
 
-        This table computes syllable quality metrics from PreFit checkpoint files,
-        including syllable counts and duration statistics. These metrics are useful
-        for evaluating model quality and determining appropriate kappa values.
+        This method computes essential syllable quality metrics from PreFit checkpoint files.
+        The key metric is median_syllable_duration_ms, which should be close to 400ms for
+        optimal kappa selection.
+
+        Args:
+            key (dict): Dictionary with the `PreFit` Key.
         """
         # Get checkpoint file path and resolve to absolute path
-        checkpoint_file = (
-            PreFit.File & key & 'file_name LIKE "%checkpoint.h5"'
-        ).fetch1("file_path")
+        checkpoint_file_query = PreFit.File & key & 'file_name LIKE "%checkpoint.h5"'
+        if not checkpoint_file_query:
+            raise FileNotFoundError(
+                f"No checkpoint file found for PreFit key {key}. "
+                "Ensure PreFit.File entries are populated."
+            )
+        checkpoint_file = checkpoint_file_query.fetch1("file_path")
         checkpoint_file = find_full_path(get_kpms_processed_data_dir(), checkpoint_file)
+
+        if not checkpoint_file.exists():
+            raise FileNotFoundError(
+                f"Checkpoint file not found at resolved path: {checkpoint_file}"
+            )
 
         # Get average frame rate for converting to seconds
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
-        # Compute aggregate metrics (median, mean, std, etc.)
+        # Get kappa value from PreFitTask for easy comparison
+        pre_kappa = (PreFitTask & key).fetch1("pre_kappa")
+
+        # Compute comprehensive metrics (median, mean, std, percentiles, distance from target, etc.)
         aggregate_metrics = kpms_reader.compute_syllable_metrics(
             checkpoint_file=checkpoint_file, fps=float(average_frame_rate)
         )
+
+        # Add kappa value to metrics for easy comparison
+        aggregate_metrics["pre_kappa"] = int(pre_kappa)
 
         # Insert aggregate results
         self.insert1({**key, **aggregate_metrics})
@@ -1790,41 +1802,34 @@ class FullFit(dj.Computed):
 class FullFitQA(dj.Computed):
     """Compute syllable quality metrics for FullFit models.
 
+    This table computes essential syllable quality metrics from FullFit checkpoint files
+    to determine the best kappa (stickiness) value. The target is a median state duration
+    of 400ms.
+
     Attributes:
         FullFit (foreign key)                    : `FullFit` Key
-        num_syllables (int)                        : Number of unique syllables discovered
-        median_syllable_duration_frames (float)   : Median syllable duration in frames
-        median_syllable_duration_seconds (float)  : Median syllable duration in seconds
-        mean_syllable_duration_frames (float)     : Mean syllable duration in frames
-        min_syllable_duration_frames (int)         : Minimum syllable duration in frames
-        max_syllable_duration_frames (int)         : Maximum syllable duration in frames
-        std_syllable_duration_frames (float)       : Standard deviation of syllable durations in frames
-        p25_syllable_duration_frames (float)       : 25th percentile duration in frames (IQR lower bound)
-        p25_syllable_duration_seconds (float)      : 25th percentile duration in seconds
-        p75_syllable_duration_frames (float)       : 75th percentile duration in frames (IQR upper bound)
-        p75_syllable_duration_seconds (float)      : 75th percentile duration in seconds
-        is_duration_in_target_range (tinyint)       : Whether median duration is in target range (0.3-0.4 seconds)
+        full_kappa (int)                         : Kappa value used for this FullFit (from FullFitTask)
+        num_syllables (int)                      : Number of unique syllables discovered
+        median_syllable_duration_ms (float)       : Median syllable duration in milliseconds (target: 400ms)
     """
 
     definition = """
     -> FullFit
     ---
-    num_syllables=NULL           : int
-    median_syllable_duration_frames=NULL : float
-    median_syllable_duration_seconds=NULL : float
-    mean_syllable_duration_frames=NULL : float
-    min_syllable_duration_frames=NULL : int
-    max_syllable_duration_frames=NULL : int
-    std_syllable_duration_frames=NULL : float
-    is_duration_in_target_range=NULL : tinyint
+    full_kappa=NULL                    : int              # Kappa value used (from FullFitTask) for easy comparison
+    num_syllables=NULL                 : int              # Number of unique syllables discovered
+    median_syllable_duration_ms=NULL  : float            # Median syllable duration in milliseconds (target: 400ms)
     """
 
     def make(self, key):
         """Compute syllable quality metrics for FullFit models.
 
-        This table computes syllable quality metrics from FullFit checkpoint files,
-        including syllable counts and duration statistics. These metrics are useful
-        for evaluating model quality and determining appropriate kappa values.
+        This method computes essential syllable quality metrics from FullFit checkpoint files.
+        The key metric is median_syllable_duration_ms, which should be close to 400ms for
+        optimal kappa selection.
+
+        Args:
+            key (dict): Dictionary with the `FullFit` Key.
         """
         # Get checkpoint file path and resolve to absolute path
         checkpoint_file_query = FullFit.File & key & 'file_name LIKE "%checkpoint.h5"'
@@ -1844,10 +1849,16 @@ class FullFitQA(dj.Computed):
         # Get average frame rate for converting to seconds
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
-        # Compute aggregate metrics (median, mean, std, etc.)
+        # Get kappa value from FullFitTask for easy comparison
+        full_kappa = (FullFitTask & key).fetch1("full_kappa")
+
+        # Compute comprehensive metrics (median, mean, std, percentiles, distance from target, etc.)
         aggregate_metrics = kpms_reader.compute_syllable_metrics(
             checkpoint_file=checkpoint_file, fps=float(average_frame_rate)
         )
+
+        # Add kappa value to metrics for easy comparison
+        aggregate_metrics["full_kappa"] = int(full_kappa)
 
         # Insert aggregate results
         self.insert1({**key, **aggregate_metrics})
