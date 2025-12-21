@@ -355,21 +355,40 @@ class TrajectoryPlot(dj.Computed):
             logger.info(
                 f"Using video_paths with {len(video_paths_dict)} entries for grid movies"
             )
+        elif video_paths_dict and missing_keys:
+            # Some keys have video paths, use video_paths for matched keys only
+            # Filter results to only include keys with video paths
+            filtered_results = {
+                k: v for k, v in results.items() if k in video_paths_dict
+            }
+            filtered_coordinates = {
+                k: v for k, v in coordinates.items() if k in video_paths_dict
+            }
+
+            grid_movies_kwargs["video_paths"] = video_paths_dict
+            grid_movies_kwargs["results"] = filtered_results
+            grid_movies_kwargs["coordinates"] = filtered_coordinates
+
+            logger.warning(
+                f"Missing video paths for {len(missing_keys)} keys: {sorted(missing_keys)[:10]}{'...' if len(missing_keys) > 10 else ''}. "
+                f"Videos exist but are not registered in RecordingSet.File. "
+                f"Please insert the missing video files into RecordingSet.File for key: {key}. "
+                f"Generating grid movies for {len(video_paths_dict)} matched keys only. "
+                f"Skipping {len(missing_keys)} keys without video files."
+            )
         else:
-            # Some keys are missing video paths, use video_dir as fallback
+            # No video_paths_dict available - videos are not registered in RecordingSet.File
+            logger.warning(
+                f"No video_paths_dict available. "
+                f"Videos exist but are not registered in RecordingSet.File. "
+                f"Please insert the missing video files into RecordingSet.File for key: {key}. "
+                f"Results keys needing videos: {sorted(results_keys)[:10]}{'...' if len(results_keys) > 10 else ''}. "
+                f"Total keys: {len(results_keys)}. "
+                f"Generating grid movies in keypoints_only mode (no video overlay)."
+            )
+            # Set keypoints_only mode to avoid video requirement
+            grid_movies_kwargs["keypoints_only"] = True
             grid_movies_kwargs["video_dir"] = kpset_dir
-            if missing_keys:
-                logger.warning(
-                    f"Missing video paths for {len(missing_keys)} keys: {sorted(missing_keys)[:5]}... "
-                    f"Using video_dir={kpset_dir} as fallback. "
-                    f"Some videos may not be found."
-                )
-            else:
-                logger.warning(
-                    f"No video_paths_dict available. "
-                    f"Using video_dir={kpset_dir} as fallback. "
-                    f"Some videos may not be found."
-                )
 
         generate_grid_movies(**grid_movies_kwargs)
 
