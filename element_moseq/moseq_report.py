@@ -311,7 +311,7 @@ class TrajectoryPlot(dj.Computed):
 
         # Build video_paths_dict
         video_paths_dict = build_video_paths_dict(
-            key, video_sequence_data, results, kpms_root
+            key, video_sequence_data, results, kpms_root, find_full_path
         )
 
         # Create output directories

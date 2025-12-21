@@ -21,6 +21,11 @@ classifiers = [
 requires-python = ">=3.10,<3.12"
 dependencies = [
     "datajoint>=0.14.0",
+    "numpy",
+    "matplotlib",
+    "h5py",
+    "pandas",
+    "element-interface",
     "ipykernel>=6.0.1",
     "ipywidgets",
     "opencv-python",
@@ -40,7 +45,6 @@ kpms_gpu = ["jax<0.7.0", "keypoint-moseq[cuda] @ git+https://github.com/dattalab
 tests = [
     "pytest",
     "pytest-cov",
-    "shutils",
 ]
 
 [project.urls]

@@ -294,6 +294,8 @@ def plot_pcs(
     from keypoint_moseq.viz import plot_pcs_3D
 
     k = len(use_bodyparts)
+    if k < 2:
+        raise ValueError("use_bodyparts must contain at least 2 items for PCA plotting")
     d = len(pca.mean_) // (k - 1)
 
     if keypoint_colors is None:
