@@ -638,6 +638,7 @@ class MotionSequence(dj.Computed):
             video_keys, file_ids, file_paths, video_only=False
         )
         motion_rows = []
+        unmatched_keys = []
         for vid in video_keys:
             if vid in matched_videos:
                 matched_file_id, _ = matched_videos[vid]
@@ -655,7 +656,26 @@ class MotionSequence(dj.Computed):
                     }
                 )
             else:
-                logger.warning(f"No file found for video key: '{vid}'")
+                unmatched_keys.append(vid)
+
+        # Provide detailed warning for unmatched video keys
+        if unmatched_keys:
+            file_stems = [Path(fp).stem for fp in file_paths]
+            # Extract base keys for comparison
+            from .plotting.viz_utils import extract_base_video_key
+
+            base_unmatched = [extract_base_video_key(k) for k in unmatched_keys]
+
+            logger.warning(
+                f"Could not match {len(unmatched_keys)} video key(s) to files in RecordingSet.File. "
+                f"Unmatched video keys: {unmatched_keys[:5]}{'...' if len(unmatched_keys) > 5 else ''}. "
+                f"Base keys (after removing DLC suffix): {base_unmatched[:5]}{'...' if len(base_unmatched) > 5 else ''}. "
+                f"Available file stems (first 10): {file_stems[:10]}{'...' if len(file_stems) > 10 else ''}. "
+                f"Total files in RecordingSet.File: {len(file_paths)}. "
+                f"This may occur if: (1) keypoint files used during inference are not in RecordingSet.File, "
+                f"(2) file naming conventions differ between inference and RecordingSet.File, or "
+                f"(3) different recordings were used. Ensure RecordingSet.File includes all files (videos and keypoints) used for inference."
+            )
 
         # Log an error if no video keys were matched to file IDs and paths
         if not motion_rows:
