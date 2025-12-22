@@ -20,6 +20,13 @@ os.environ["JAX_ENABLE_X64"] = "False"
 os.environ["JAX_ARRAY"] = "False"  # Use legacy array API for better compatibility
 os.environ["JAX_DYNAMIC_SHAPES"] = "False"
 
+# Additional JAX configuration to ensure 32-bit precision
+import jax
+
+# Switch to single-precision computing as recommended by KPMS documentation
+jax.config.update("jax_enable_x64", False)
+
+
 from .plotting import viz_utils
 from .readers import kpms_reader
 
