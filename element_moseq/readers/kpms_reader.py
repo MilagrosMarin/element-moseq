@@ -7,7 +7,6 @@ import cv2
 import datajoint as dj
 import numpy as np
 import yaml
-from element_interface.utils import find_full_path
 
 logger = dj.logger
 
@@ -522,7 +521,7 @@ def validate_video_directory(
     return videos_dir
 
 
-def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
+def build_video_paths_dict(key, video_sequence_data, results, kpms_root, find_full_path):
     """Build dictionary mapping video keys to video file paths.
 
     Args:
@@ -530,6 +529,7 @@ def build_video_paths_dict(key, video_sequence_data, results, kpms_root):
         video_sequence_data (list): List of dictionaries with 'file' and 'file_path' keys.
         results (dict): Inference results dictionary with video keys.
         kpms_root (list): Root data directories.
+        find_full_path (callable): Function to resolve relative paths to absolute paths.
 
     Returns:
         dict: Mapping of video keys to video file paths.

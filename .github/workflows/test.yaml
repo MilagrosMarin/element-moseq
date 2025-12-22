@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        py_ver: ["3.9", "3.10"]
+        py_ver: ["3.10", "3.11"]
         mysql_ver: ["8.0"]
     steps:
       - uses: actions/checkout@v3

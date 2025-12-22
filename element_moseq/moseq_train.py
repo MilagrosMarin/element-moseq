@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import datajoint as dj
-import jax_moseq
 import matplotlib.pyplot as plt
 import numpy as np
 from element_interface.utils import find_full_path
@@ -20,12 +19,6 @@ from element_interface.utils import find_full_path
 os.environ["JAX_ENABLE_X64"] = "False"
 os.environ["JAX_ARRAY"] = "False"  # Use legacy array API for better compatibility
 os.environ["JAX_DYNAMIC_SHAPES"] = "False"
-
-# Additional JAX configuration to ensure 32-bit precision
-import jax
-
-# Switch to single-precision computing as recommended by KPMS documentation
-jax.config.update("jax_enable_x64", False)
 
 from .plotting import viz_utils
 from .readers import kpms_reader
@@ -1210,6 +1203,7 @@ class PreFit(dj.Computed):
             import jax
 
             jax.config.update("jax_enable_x64", True)
+            import jax_moseq
             from keypoint_moseq import estimate_sigmasq_loc
 
             kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1(
@@ -1573,6 +1567,7 @@ class FullFit(dj.Computed):
         import pickle
 
         import jax
+        import jax_moseq
         from keypoint_moseq import (
             fit_model,
             load_checkpoint,
