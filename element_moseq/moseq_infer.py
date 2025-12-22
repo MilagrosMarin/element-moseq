@@ -591,9 +591,12 @@ class MotionSequence(dj.Computed):
         FILTER_SIZE = 9  # Filter size for centroid/heading smoothing (frames)
         GRID_SAMPLES = 4 * 6  # Number of samples for grid movies (rows * cols)
 
-        (inference_output_dir, model_dir, num_iterations, task_mode,) = (
-            InferenceTask * Model & key
-        ).fetch1(
+        (
+            inference_output_dir,
+            model_dir,
+            num_iterations,
+            task_mode,
+        ) = (InferenceTask * Model & key).fetch1(
             "inference_output_dir",
             "model_dir",
             "num_iterations",
