@@ -609,10 +609,17 @@ class MotionSequence(dj.Computed):
             # Update the inference_output_dir in the database
             InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
 
-        inference_output_dir = Path(model_dir) / inference_output_dir
-        inference_output_dir = find_full_path(kpms_processed, inference_output_dir)
+        inference_output_dir = Path(kpms_processed) / model_dir / inference_output_dir
+        # Ensure directory exists
+        inference_output_dir.mkdir(parents=True, exist_ok=True)
 
         coordinates_file = (Inference & key).fetch1("coordinates_file")
+        if not Path(coordinates_file).exists():
+            raise FileNotFoundError(
+                f"Coordinates file not found: {coordinates_file}. "
+                f"The Inference entry may need to be re-populated. "
+                f"Try running: moseq_infer.Inference.populate(key)"
+            )
         with open(coordinates_file, "rb") as f:
             coordinates = pickle.load(f)
 
