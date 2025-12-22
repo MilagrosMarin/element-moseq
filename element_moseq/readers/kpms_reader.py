@@ -521,7 +521,9 @@ def validate_video_directory(
     return videos_dir
 
 
-def build_video_paths_dict(key, video_sequence_data, results, kpms_root, find_full_path):
+def build_video_paths_dict(
+    key, video_sequence_data, results, kpms_root, find_full_path
+):
     """Build dictionary mapping video keys to video file paths.
 
     Args:
