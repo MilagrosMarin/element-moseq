@@ -1058,35 +1058,33 @@ class LatentDimension(dj.Computed):
                 f"No pcs xy file (`pcs-xy.pdf`) found in the project directory {kpms_project_output_dir}"
             )
 
-        # Save plots
-        tmpdir = tempfile.TemporaryDirectory()
-        fname = f"{key['kpset_id']}_{key['bodyparts_id']}"
-        scree_path = Path(tmpdir.name) / f"{fname}_scree_plot.png"
-        scree_fig.savefig(scree_path)
-        pcs_path = Path(tmpdir.name) / f"{fname}_pcs_plot.png"
-        pcs_fig.savefig(pcs_path)
+        # Save plots using context manager to ensure proper cleanup
+        with tempfile.TemporaryDirectory() as tmpdir_name:
+            fname = f"{key['kpset_id']}_{key['bodyparts_id']}"
+            scree_path = Path(tmpdir_name) / f"{fname}_scree_plot.png"
+            scree_fig.savefig(scree_path)
+            pcs_path = Path(tmpdir_name) / f"{fname}_pcs_plot.png"
+            pcs_fig.savefig(pcs_path)
 
-        # Insert main results
-        self.insert1(
-            dict(
-                **key,
-                variance_percentage=variance_percentage,
-                latent_dimension=latent_dimension,
-                latent_dim_desc=latent_dim_desc,
+            # Insert main results
+            self.insert1(
+                dict(
+                    **key,
+                    variance_percentage=variance_percentage,
+                    latent_dimension=latent_dimension,
+                    latent_dim_desc=latent_dim_desc,
+                )
             )
-        )
 
-        # Insert plots
-        self.Plots.insert1(
-            {
-                **key,
-                "scree_plot": scree_path,
-                "pcs_plot": pcs_path,
-                "pcs_xy_plot": pcs_xy_file,
-            }
-        )
-
-        tmpdir.cleanup()
+            # Insert plots (files are copied during insert before tmpdir cleanup)
+            self.Plots.insert1(
+                {
+                    **key,
+                    "scree_plot": scree_path,
+                    "pcs_plot": pcs_path,
+                    "pcs_xy_plot": pcs_xy_file,
+                }
+            )
 
 
 @schema
@@ -1109,7 +1107,7 @@ class PreFitTask(dj.Manual):
     pre_kappa                    : int                   # Kappa value to use for the model pre-fitting (controls syllable duration).
     pre_num_iterations           : int                   # Number of Gibbs sampling iterations to run in the model pre-fitting (typically 10-50).
     ---
-    model_name=''                : varchar(1000)         # Optional. Name of the model to be loaded if `task_mode='load'`
+    model_name=''                : varchar(255)          # Optional. Name of the model to be loaded if `task_mode='load'`
     task_mode='load'             :enum('trigger','load') # 'load': load computed analysis results, 'trigger': trigger computation
     pre_fit_desc=''              : varchar(1000)         # Optional.User-defined description of the pre-fitting task
     """
@@ -1129,7 +1127,7 @@ class PreFit(dj.Computed):
     definition = """
     -> PreFitTask                                # `PreFitTask` Key
     ---
-    model_name=''                : varchar(1000) # Name of the model as "kpms_project_output_dir/model_name"
+    model_name=''                : varchar(255)  # Name of the model as "kpms_project_output_dir/model_name"
     pre_fit_time=NULL            : datetime      # datetime of the model fitting computation.
     pre_fit_duration=NULL        : float         # Time duration (seconds) of the model fitting computation
     """
@@ -1460,7 +1458,7 @@ class FullFitTask(dj.Manual):
     full_kappa                   : int                  # Kappa value to use for the model full fitting (typically lower than pre-fit kappa).
     full_num_iterations          : int                  # Number of Gibbs sampling iterations to run in the model full fitting (typically 200-500).
     ---
-    model_name=''                : varchar(1000)        # Optional. Name of the model to be loaded if `task_mode='load'`
+    model_name=''                : varchar(255)         # Optional. Name of the model to be loaded if `task_mode='load'`
     task_mode='load'             :enum('load','trigger')# Trigger or load the task
     full_fit_desc=''             : varchar(1000)        # Optional.User-defined description of the model full fitting task
     """
@@ -1480,7 +1478,7 @@ class FullFit(dj.Computed):
     definition = """
     -> FullFitTask                                # `FullFitTask` Key
     ---
-    model_name=''                 : varchar(100)  # Name of the model as "kpms_project_output_dir/model_name".
+    model_name=''                 : varchar(255)  # Name of the model as "kpms_project_output_dir/model_name".
     full_fit_time=NULL            : datetime      # datetime of the full fitting computation.
     full_fit_duration=NULL        : float         # Time duration (seconds) of the full fitting computation.
     """
@@ -1593,13 +1591,6 @@ class FullFit(dj.Computed):
 
         # Convert tuple back to list for use in computation
         use_bodyparts = list(use_bodyparts) if use_bodyparts else []
-
-        # Convert average_frame_rate to integer scalar (handle tuple/array case)
-        average_frame_rate = int(
-            average_frame_rate[0]
-            if isinstance(average_frame_rate, (tuple, list))
-            else average_frame_rate
-        )
 
         # Resolve relative paths to absolute paths
         kpms_project_output_dir = find_full_path(
@@ -1930,7 +1921,7 @@ class SelectedFullFit(dj.Manual):
     definition = """
     -> FullFit
     ---
-    registered_model_name         : varchar(1000)   # User-friendly model name
+    registered_model_name         : varchar(255)    # User-friendly model name
     registered_model_desc=''      : varchar(1000) # Optional user-defined description
     """
 

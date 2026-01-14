@@ -88,7 +88,7 @@ class Model(dj.Manual):
     definition = """
     model_id                : int             # Unique ID for each model
     ---
-    model_name              : varchar(1000)   # User-friendly model name
+    model_name              : varchar(255)    # User-friendly model name
     model_dir               : varchar(1000)   # Model directory relative to root data directory
     model_file              : filepath@moseq-infer-processed        # Checkpoint file (h5 format)
     model_desc=''           : varchar(1000)   # Optional. User-defined description of the model
@@ -377,6 +377,7 @@ class Inference(dj.Computed):
             for video_file in video_files:
                 cap = cv2.VideoCapture(str(video_file))
                 frame_rate = cap.get(cv2.CAP_PROP_FPS)
+                cap.release()
                 frame_rates.append(frame_rate)
 
             if not frame_rates:
@@ -478,14 +479,23 @@ class Inference(dj.Computed):
             with open(confidences_filepath, "rb") as f:
                 confidences = pickle.load(f)
 
-            # Load average_frame_rate from existing Inference entry
-            try:
-                average_frame_rate = (Inference & key).fetch1("average_frame_rate")
-            except Exception as e:
-                raise ValueError(
-                    f"Cannot load average_frame_rate for key {key}. "
-                    f"Inference entry may not exist yet. Error: {e}"
+            # Calculate average_frame_rate from video files (same as trigger mode)
+            kpms_root = moseq_train.get_kpms_root_data_dir()
+            recording_set_key = (RecordingSet & (InferenceTask & key)).fetch1("KEY")
+            file_paths = (RecordingSet.File & recording_set_key).fetch("file_path")
+            video_extensions = [".mp4", ".avi", ".mov", ".wmv", ".mpeg", ".mpg"]
+            frame_rates = []
+            for file_path in file_paths:
+                file_path_full = find_full_path(kpms_root, file_path)
+                if Path(file_path_full).suffix.lower() in video_extensions:
+                    cap = cv2.VideoCapture(str(file_path_full))
+                    frame_rates.append(cap.get(cv2.CAP_PROP_FPS))
+                    cap.release()
+            if not frame_rates:
+                raise FileNotFoundError(
+                    f"No video files found in RecordingSet.File for {recording_set_key}"
                 )
+            average_frame_rate = np.mean(frame_rates)
 
         results_filepath = (inference_output_dir / "results.h5").as_posix()
 
@@ -680,9 +690,9 @@ class MotionSequence(dj.Computed):
                 f"(3) different recordings were used. Ensure RecordingSet.File includes all files (videos and keypoints) used for inference."
             )
 
-        # Log an error if no video keys were matched to file IDs and paths
+        # Raise error if no video keys were matched to file IDs and paths
         if not motion_rows:
-            logger.error(
+            raise ValueError(
                 f"Failed to match any video keys. "
                 f"Video keys: {video_keys}, "
                 f"File stems: {[Path(fp).stem for fp in file_paths]}, "
