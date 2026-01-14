@@ -709,7 +709,6 @@ class PreProcessingQA(dj.Computed):
 
         fps_lookup = {v["video_id"]: float(v["frame_rate"]) for v in fps_lookup}
 
-        kpms_dj_config_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
         kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
             config_path=kpms_dj_config_path,
             build_indexes=True,
