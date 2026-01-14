@@ -8,6 +8,8 @@ import datajoint as dj
 import numpy as np
 import yaml
 
+from ..plotting.viz_utils import VIDEO_EXTENSIONS
+
 logger = dj.logger
 
 KPMS_DJ_CONFIG = "kpms_dj_config.yml"
@@ -119,12 +121,18 @@ def dj_generate_config(kpms_project_dir: str, **kwargs) -> tuple:
     kpms_base_config_dict = None
     if Path(kpms_base_config_path).exists():
         with open(kpms_base_config_path, "r") as f:
-            kpms_base_config_dict = yaml.safe_load(f) or {}
+            kpms_base_config_dict = yaml.safe_load(f)
+        if kpms_base_config_dict is None:
+            raise ValueError(
+                f"Config file exists but is empty: {kpms_base_config_path}"
+            )
 
     # Generate or update KPMS DJ config
     if Path(kpms_dj_config_path).exists():
         with open(kpms_dj_config_path, "r") as f:
-            kpms_dj_config_dict = yaml.safe_load(f) or {}
+            kpms_dj_config_dict = yaml.safe_load(f)
+        if kpms_dj_config_dict is None:
+            raise ValueError(f"Config file exists but is empty: {kpms_dj_config_path}")
     else:
         if not Path(kpms_base_config_path).exists():
             raise FileNotFoundError(
@@ -550,17 +558,6 @@ def build_video_paths_dict(
         return {}
 
     video_paths_dict = {}
-    video_extensions = {
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".mkv",
-        ".wmv",
-        ".flv",
-        ".webm",
-        ".mpeg",
-        ".mpg",
-    }
     video_keys_from_results = list(results.keys())
 
     logger.info(
@@ -581,7 +578,7 @@ def build_video_paths_dict(
     stem_to_video_path = {}
     for file_path in all_file_paths:
         file_path_obj = Path(file_path)
-        if file_path_obj.suffix.lower() in video_extensions:
+        if file_path_obj.suffix.lower() in VIDEO_EXTENSIONS:
             stem = file_path_obj.stem
             try:
                 full_video_path = find_full_path(kpms_root, file_path)

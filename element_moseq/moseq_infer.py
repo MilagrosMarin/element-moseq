@@ -17,6 +17,7 @@ from . import moseq_train
 from .plotting.viz_utils import (
     MIN_DURATION,
     MIN_FREQUENCY,
+    VIDEO_EXTENSIONS,
     match_video_keys_to_file_paths,
 )
 from .readers import kpms_reader
@@ -356,7 +357,6 @@ class Inference(dj.Computed):
             file_paths = (RecordingSet.File & recording_set_key).fetch("file_path")
 
             # Filter video files and keypoint files from RecordingSet.File
-            video_extensions = [".mp4", ".avi", ".mov", ".wmv", ".mpeg", ".mpg"]
             video_files = []
             h5_files = []
             csv_files = []
@@ -365,7 +365,7 @@ class Inference(dj.Computed):
                 file_path_full = find_full_path(kpms_root, file_path)
                 file_ext = Path(file_path_full).suffix.lower()
 
-                if file_ext in video_extensions:
+                if file_ext in VIDEO_EXTENSIONS:
                     video_files.append(file_path_full)
                 elif file_ext == ".h5":
                     h5_files.append(file_path_full)
@@ -483,11 +483,10 @@ class Inference(dj.Computed):
             kpms_root = moseq_train.get_kpms_root_data_dir()
             recording_set_key = (RecordingSet & (InferenceTask & key)).fetch1("KEY")
             file_paths = (RecordingSet.File & recording_set_key).fetch("file_path")
-            video_extensions = [".mp4", ".avi", ".mov", ".wmv", ".mpeg", ".mpg"]
             frame_rates = []
             for file_path in file_paths:
                 file_path_full = find_full_path(kpms_root, file_path)
-                if Path(file_path_full).suffix.lower() in video_extensions:
+                if Path(file_path_full).suffix.lower() in VIDEO_EXTENSIONS:
                     cap = cv2.VideoCapture(str(file_path_full))
                     frame_rates.append(cap.get(cv2.CAP_PROP_FPS))
                     cap.release()

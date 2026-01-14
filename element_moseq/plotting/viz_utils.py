@@ -19,6 +19,9 @@ logger = dj.logger
 MIN_DURATION = 3  # Minimum duration in frames
 MIN_FREQUENCY = 0.005  # Minimum frequency as fraction (0.5% of total instances)
 
+# Supported video file extensions
+VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".wmv", ".mpeg", ".mpg", ".mkv", ".webm"}
+
 
 def extract_base_video_key(video_key: str) -> str:
     """Extract base video name from video key (removes DLC suffix if present).
@@ -54,21 +57,10 @@ def match_video_keys_to_file_paths(video_keys, file_ids, file_paths, video_only=
         dict: Mapping of video_key -> (file_id, file_path) for matched videos
     """
     if video_only:
-        video_extensions = {
-            ".mp4",
-            ".avi",
-            ".mov",
-            ".mkv",
-            ".wmv",
-            ".flv",
-            ".webm",
-            ".mpeg",
-            ".mpg",
-        }
         filtered_indices = [
             i
             for i, fp in enumerate(file_paths)
-            if Path(fp).suffix.lower() in video_extensions
+            if Path(fp).suffix.lower() in VIDEO_EXTENSIONS
         ]
         file_ids = [file_ids[i] for i in filtered_indices]
         file_paths = [file_paths[i] for i in filtered_indices]
