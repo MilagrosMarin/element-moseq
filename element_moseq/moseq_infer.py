@@ -244,12 +244,12 @@ class Inference(dj.Computed):
             "pose_estimation_method",
         )
 
-        # Compute default inference_output_dir if needed, but don't update database
-        # during fetch to avoid referential integrity issues
+        # Auto-generate output directory if empty and update database (runs in transaction)
         if not inference_output_dir:
             inference_output_dir = InferenceTask.infer_output_dir(
                 key, relative=True, mkdir=True
             )
+            InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
 
         model_dir_rel, model_file = (Model * moseq_train.SelectedFullFit & key).fetch1(
             "model_dir", "model_file"
@@ -331,11 +331,7 @@ class Inference(dj.Computed):
 
         start_time = datetime.now(timezone.utc)
 
-        original_inference_output_dir = (InferenceTask & key).fetch1(
-            "inference_output_dir"
-        )
-        if not original_inference_output_dir:
-            InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
+        # Note: inference_output_dir auto-generation moved to make_fetch()
 
         # Get directories for new recordings
         kpms_root = moseq_train.get_kpms_root_data_dir()
@@ -591,12 +587,9 @@ class MotionSequence(dj.Computed):
         FILTER_SIZE = 9  # Filter size for centroid/heading smoothing (frames)
         GRID_SAMPLES = 4 * 6  # Number of samples for grid movies (rows * cols)
 
-        (
-            inference_output_dir,
-            model_dir,
-            num_iterations,
-            task_mode,
-        ) = (InferenceTask * Model & key).fetch1(
+        (inference_output_dir, model_dir, num_iterations, task_mode,) = (
+            InferenceTask * Model & key
+        ).fetch1(
             "inference_output_dir",
             "model_dir",
             "num_iterations",
@@ -604,13 +597,13 @@ class MotionSequence(dj.Computed):
         )
         kpms_processed = moseq_train.get_kpms_processed_data_dir()
 
-        # Handle default inference_output_dir if not provided
+        # Note: inference_output_dir is set by Inference.make_fetch() when Inference is populated
+        # (which must happen before MotionSequence due to dependency)
         if not inference_output_dir:
-            inference_output_dir = InferenceTask.infer_output_dir(
-                key, relative=True, mkdir=True
+            raise ValueError(
+                "inference_output_dir is empty. This should have been set when "
+                "Inference was populated. Try re-populating Inference first."
             )
-            # Update the inference_output_dir in the database
-            InferenceTask.update1({**key, "inference_output_dir": inference_output_dir})
 
         inference_output_dir = Path(kpms_processed) / model_dir / inference_output_dir
         # Ensure directory exists

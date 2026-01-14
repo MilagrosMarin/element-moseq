@@ -303,6 +303,9 @@ class PreProcessing(dj.Computed):
     def make_fetch(self, key):
         """
         Fetch required data for preprocessing from database tables.
+
+        If kpms_project_output_dir is empty in trigger mode, auto-generates
+        and updates the PCATask table (runs in transaction).
         """
         anterior_bodyparts, posterior_bodyparts, use_bodyparts = (
             BodyParts & key
@@ -318,6 +321,13 @@ class PreProcessing(dj.Computed):
         kpms_project_output_dir, task_mode, outlier_scale_factor = (
             PCATask & key
         ).fetch1("kpms_project_output_dir", "task_mode", "outlier_scale_factor")
+
+        # Auto-generate output directory if empty (update runs in transaction)
+        if task_mode == "trigger" and not kpms_project_output_dir:
+            kpms_project_output_dir = PCATask.infer_output_dir(
+                key, relative=True, mkdir=True
+            )
+            PCATask.update1({**key, "kpms_project_output_dir": kpms_project_output_dir})
 
         return (
             anterior_bodyparts,
@@ -394,13 +404,7 @@ class PreProcessing(dj.Computed):
         if task_mode == "trigger":
             from keypoint_moseq import setup_project
 
-            if not kpms_project_output_dir:
-                kpms_project_output_dir = PCATask.infer_output_dir(
-                    key, relative=True, mkdir=True
-                )
-                PCATask.update1(
-                    {**key, "kpms_project_output_dir": kpms_project_output_dir}
-                )
+            # Note: kpms_project_output_dir auto-generation moved to make_fetch()
 
             try:
                 kpms_project_output_dir = find_full_path(
@@ -1187,6 +1191,7 @@ class PreFit(dj.Computed):
             fit_model,
             format_data,
             init_model,
+            load_checkpoint,
             load_pca,
             update_hypparams,
         )
@@ -1315,6 +1320,10 @@ class PreFit(dj.Computed):
             raise FileNotFoundError(
                 f"No checkpoint files found in {model_name_full_path}"
             )
+
+        # In load mode, load model from checkpoint (trigger mode already has model)
+        if task_mode == "load":
+            model, _, _, _ = load_checkpoint(path=checkpoint_file)
 
         completion_time = datetime.now(timezone.utc)
 
