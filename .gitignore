@@ -115,6 +115,10 @@ temp/*
 test_*
 example_*
 
+# Allow test files in tests/ directory
+!tests/test_*.py
+!tests/dj_local_conf.json
+
 # docs
 /docs/site
 /docs/src/tutorials/*ipynb

@@ -18,7 +18,12 @@ _tear_down = False  # Set to True to drop schemas after tests
 
 def _setup_dj_config():
     """Set up DataJoint configuration early, before schema activation."""
-    if pathlib.Path("./dj_local_conf.json").exists():
+    # Look for config in the tests directory first
+    tests_dir = pathlib.Path(__file__).parent
+    config_path = tests_dir / "dj_local_conf.json"
+    if config_path.exists():
+        dj.config.load(str(config_path))
+    elif pathlib.Path("./dj_local_conf.json").exists():
         dj.config.load("./dj_local_conf.json")
 
     # Get test data directories (use user's data folder)
