@@ -348,6 +348,9 @@ class Inference(dj.Computed):
 
         if task_mode == "trigger":
             import jax_moseq
+            from jax_moseq.utils import set_mixed_map_iters
+
+            set_mixed_map_iters(8)
 
             # load saved model data
             fullfit_kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
