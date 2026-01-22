@@ -802,6 +802,10 @@ class PreProcessingQA(dj.Computed):
         """
         Insert QA data into the PreProcessingQA table and part tables.
         """
+        import datajoint as dj
+
+        dj.conn().connect()
+
         # Insert in the main table
         self.insert1(
             {
@@ -812,17 +816,14 @@ class PreProcessingQA(dj.Computed):
         )
 
         # Insert QA materials (plots and videos)
-        if qa_data:
-            self.VideoQA.insert(
-                [
-                    {
-                        **key,
-                        "video_id": data["video_id"],
-                        "outlier_plot": data["outlier_plot_path"],
-                        "overlay_video": data["overlay_video_path"],
-                    }
-                    for data in qa_data
-                ]
+        for data in qa_data:
+            self.VideoQA.insert1(
+                {
+                    **key,
+                    "video_id": data["video_id"],
+                    "outlier_plot": data["outlier_plot_path"],
+                    "overlay_video": data["overlay_video_path"],
+                },
             )
 
 
