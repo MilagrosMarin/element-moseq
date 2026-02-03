@@ -1168,36 +1168,13 @@ class PreFit(dj.Computed):
         fitting_progress_plot_pdf: attach
         """
 
-    def make(self, key):
+    def make_fetch(self, key):
+        """Fetch required data for PreFit from database tables.
+
+        Returns:
+            tuple: All data needed for model fitting computation.
         """
-        Fit AR-HMM model for initial behavioral syllable discovery.
-
-        Args:
-            key (dict): Dictionary with the `PreFitTask` Key.
-
-        Raises:
-            FileNotFoundError: No PCA model found in project directory.
-
-        High-Level Logic:
-        1. Fetch project output directory and model parameters.
-        2. Update configuration with latent dimension and kappa values.
-        3. Load PCA model and format keypoint data.
-        4. Initialize and fit AR-HMM model.
-        5. Calculate fitting duration and insert results.
-        """
-        from keypoint_moseq import (
-            fit_model,
-            format_data,
-            init_model,
-            load_checkpoint,
-            load_pca,
-            update_hypparams,
-        )
-
-        kpms_project_output_dir = find_full_path(
-            get_kpms_processed_data_dir(),
-            (PCATask & key).fetch1("kpms_project_output_dir"),
-        )
+        kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
         pre_latent_dim, pre_kappa, pre_num_iterations, task_mode, model_name = (
             PreFitTask & key
         ).fetch1(
@@ -1208,6 +1185,101 @@ class PreFit(dj.Computed):
             "model_name",
         )
 
+        pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
+        use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        coordinates, confidences = (PreProcessing & key).fetch1(
+            "coordinates", "confidences"
+        )
+        average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
+        kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
+
+        # Convert numpy types to Python native types for referential integrity
+        pre_latent_dim = int(pre_latent_dim)
+        pre_kappa = float(pre_kappa)
+        pre_num_iterations = int(pre_num_iterations)
+        average_frame_rate = int(average_frame_rate)
+
+        # Convert list to tuple for immutability
+        use_bodyparts = tuple(use_bodyparts) if use_bodyparts else ()
+
+        # Normalize paths to strings
+        kpms_project_output_dir = str(kpms_project_output_dir)
+        pca_path = str(pca_path)
+        kpms_dj_config_abs_path = str(kpms_dj_config_abs_path)
+
+        return (
+            kpms_project_output_dir,
+            pre_latent_dim,
+            pre_kappa,
+            pre_num_iterations,
+            task_mode,
+            model_name,
+            pca_path,
+            use_bodyparts,
+            coordinates,
+            confidences,
+            average_frame_rate,
+            kpms_dj_config_abs_path,
+        )
+
+    def make_compute(
+        self,
+        key,
+        kpms_project_output_dir,
+        pre_latent_dim,
+        pre_kappa,
+        pre_num_iterations,
+        task_mode,
+        model_name,
+        pca_path,
+        use_bodyparts,
+        coordinates,
+        confidences,
+        average_frame_rate,
+        kpms_dj_config_abs_path,
+    ):
+        """Compute PreFit AR-HMM model fitting.
+
+        This runs outside the database transaction to minimize lock time.
+
+        Args:
+            key (dict): Dictionary with the `PreFitTask` Key.
+            kpms_project_output_dir (str): Project output directory path.
+            pre_latent_dim (int): Latent dimension for model fitting.
+            pre_kappa (float): Kappa value for model fitting.
+            pre_num_iterations (int): Number of Gibbs sampling iterations.
+            task_mode (str): 'trigger' or 'load'.
+            model_name (str): Name of the model.
+            pca_path (str): Path to PCA file.
+            use_bodyparts (tuple): Bodyparts to use.
+            coordinates (dict): Cleaned coordinates.
+            confidences (dict): Cleaned confidences.
+            average_frame_rate (int): Average frame rate.
+            kpms_dj_config_abs_path (str): Path to config file.
+
+        Returns:
+            tuple: Results needed for database insertion.
+        """
+        from keypoint_moseq import (
+            fit_model,
+            format_data,
+            init_model,
+            load_checkpoint,
+            load_pca,
+            update_hypparams,
+        )
+
+        execution_time = datetime.now(timezone.utc)
+
+        # Convert tuple back to list for use in computation
+        use_bodyparts = list(use_bodyparts) if use_bodyparts else []
+
+        # Resolve relative paths to absolute paths
+        kpms_project_output_dir = find_full_path(
+            get_kpms_processed_data_dir(), kpms_project_output_dir
+        )
+        pca_path = find_full_path(get_kpms_processed_data_dir(), pca_path)
+
         if task_mode == "trigger":
             # Configure JAX precision
             import jax
@@ -1216,22 +1288,13 @@ class PreFit(dj.Computed):
             import jax_moseq
             from keypoint_moseq import estimate_sigmasq_loc
 
-            kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1(
-                "config_file"
-            )
-            pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
             pca = load_pca(Path(pca_path).parent.as_posix())
-            coordinates, confidences = (PreProcessing & key).fetch1(
-                "coordinates", "confidences"
-            )
-            use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
 
             data, metadata = format_data(
                 coordinates=coordinates,
                 confidences=confidences,
                 use_bodyparts=use_bodyparts,
             )
-            average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
             kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
                 config_path=kpms_dj_config_abs_path, build_indexes=False
@@ -1271,8 +1334,6 @@ class PreFit(dj.Computed):
             else:
                 model_name = str(model_name)
 
-            execution_time = datetime.now(timezone.utc)
-
             # Fit the model
             model, _ = fit_model(
                 model=model,
@@ -1282,7 +1343,7 @@ class PreFit(dj.Computed):
                 project_dir=kpms_project_output_dir.as_posix(),
                 ar_only=True,
                 num_iters=pre_num_iterations,
-                generate_progress_plots=True,  # saved to {project_dir}/{model_name}/plots/
+                generate_progress_plots=True,
                 save_every_n_iters=5,
             )
             # Create a PNG version of the PDF progress plot
@@ -1292,6 +1353,9 @@ class PreFit(dj.Computed):
             # Define model_name_full_path for checkpoint file search
             model_name_full_path = find_full_path(kpms_project_output_dir, model_name)
 
+            completion_time = datetime.now(timezone.utc)
+            duration_seconds = (completion_time - execution_time).total_seconds()
+
         else:
             # Load mode must specify a model_name
             if model_name is None or not str(model_name).strip():
@@ -1299,10 +1363,9 @@ class PreFit(dj.Computed):
             model_name_full_path = find_full_path(kpms_project_output_dir, model_name)
             pdf_path = model_name_full_path / "fitting_progress.pdf"
             png_path = model_name_full_path / "fitting_progress.png"
+            duration_seconds = None
 
-        # Get the path to the updated config file
-        kpms_dj_config_path = kpms_reader._kpms_dj_config_path(kpms_project_output_dir)
-
+        # Validate plot files exist
         if not pdf_path.exists():
             raise FileNotFoundError(f"PreFit PDF progress plot not found at {pdf_path}")
         if not png_path.exists():
@@ -1323,13 +1386,6 @@ class PreFit(dj.Computed):
         if task_mode == "load":
             model, _, _, _ = load_checkpoint(path=checkpoint_file)
 
-        completion_time = datetime.now(timezone.utc)
-
-        if task_mode == "trigger":
-            duration_seconds = (completion_time - execution_time).total_seconds()
-        else:
-            duration_seconds = None
-
         # Save model dictionary as pickle file
         model_data_filename = "model_data.pkl"
         model_data_file = model_name_full_path / model_data_filename
@@ -1338,6 +1394,34 @@ class PreFit(dj.Computed):
 
         file_paths = [checkpoint_file, model_data_file]
 
+        # Get the path to the updated config file
+        kpms_dj_config_path = kpms_reader._kpms_dj_config_path(kpms_project_output_dir)
+
+        return (
+            model_name,
+            pdf_path,
+            png_path,
+            file_paths,
+            kpms_dj_config_path,
+            duration_seconds,
+            kpms_project_output_dir,
+        )
+
+    def make_insert(
+        self,
+        key,
+        model_name,
+        pdf_path,
+        png_path,
+        file_paths,
+        kpms_dj_config_path,
+        duration_seconds,
+        kpms_project_output_dir,
+    ):
+        """Insert PreFit results into database tables.
+
+        This runs in a short database transaction after computation completes.
+        """
         self.insert1(
             {
                 **key,
