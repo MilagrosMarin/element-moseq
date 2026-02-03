@@ -839,13 +839,14 @@ def find_prefit_model(
     """Find the best PreFit model to use as warm start for FullFit.
 
     PreFit is required before FullFit to ensure good model quality.
-    This function will raise an error if no matching PreFit model is found.
+    This function selects the PreFit with matching latent_dim and the highest kappa
+    (PreFit kappa >> FullFit kappa by design - typically 10-100x higher).
 
     Args:
         prefit_task_table: PreFitTask DataJoint table
         prefit_file_table: PreFit.File DataJoint table
-        key: Primary key for querying
-        full_kappa: Kappa value to match
+        key: Primary key for querying (kpset_id, bodyparts_id)
+        full_kappa: FullFit kappa value (not used for matching, only for logging)
         full_latent_dim: Latent dimension to match
 
     Returns:
@@ -854,20 +855,18 @@ def find_prefit_model(
     Raises:
         ValueError: If no PreFit model is found matching the required parameters
     """
+    # Match on kpset_id, bodyparts_id, and latent_dim only (NOT kappa)
+    # PreFit kappa is intentionally much higher than FullFit kappa
+    # Select the PreFit with highest kappa (best quality initialization)
     best_prefit_key = (
-        prefit_task_table
-        & key
-        & {
-            "pre_kappa": full_kappa,
-            "pre_latent_dim": full_latent_dim,
-        }
-    ).fetch("KEY", order_by="pre_num_iterations desc", limit=1, as_dict=True)
+        prefit_task_table & key & {"pre_latent_dim": full_latent_dim}
+    ).fetch("KEY", order_by="pre_kappa desc", limit=1, as_dict=True)
 
     if not best_prefit_key:
         raise ValueError(
-            f"No PreFit model found for kappa={full_kappa}, latent_dim={full_latent_dim}, "
+            f"No PreFit model found for latent_dim={full_latent_dim}, "
             f"key={key}. PreFit is required before FullFit to ensure good model quality. "
-            f"Please run PreFit first by inserting a PreFitTask with matching parameters."
+            f"Please run PreFit first with matching latent_dim."
         )
 
     pre_model_key = best_prefit_key[0]
