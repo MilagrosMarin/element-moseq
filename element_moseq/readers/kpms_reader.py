@@ -147,17 +147,26 @@ def dj_generate_config(kpms_project_dir: str, **kwargs) -> tuple:
     if "use_bodyparts" in kwargs:
         use_bodyparts = list(kwargs["use_bodyparts"])
         kpms_dj_config_dict["use_bodyparts"] = use_bodyparts
+        use_bodyparts_set = set(use_bodyparts)
+
+        # Filter skeleton to only include edges where both bodyparts are in use_bodyparts
+        if "skeleton" in kpms_dj_config_dict:
+            kpms_dj_config_dict["skeleton"] = [
+                edge
+                for edge in kpms_dj_config_dict["skeleton"]
+                if edge[0] in use_bodyparts_set and edge[1] in use_bodyparts_set
+            ]
 
         # Filter anterior/posterior to be subsets of use_bodyparts
         if "anterior_bodyparts" in kwargs:
             anterior = [
-                bp for bp in kwargs["anterior_bodyparts"] if bp in use_bodyparts
+                bp for bp in kwargs["anterior_bodyparts"] if bp in use_bodyparts_set
             ]
             kwargs["anterior_bodyparts"] = anterior
 
         if "posterior_bodyparts" in kwargs:
             posterior = [
-                bp for bp in kwargs["posterior_bodyparts"] if bp in use_bodyparts
+                bp for bp in kwargs["posterior_bodyparts"] if bp in use_bodyparts_set
             ]
             kwargs["posterior_bodyparts"] = posterior
 
@@ -302,7 +311,15 @@ def update_kpms_dj_config(
         if "use_bodyparts" in kwargs:
             use_bodyparts = list(kwargs.get("use_bodyparts"))
             cfg_dict["use_bodyparts"] = use_bodyparts
-            # NOTE: skeleton is NOT modified - it remains from the base config
+            use_bodyparts_set = set(use_bodyparts)
+
+            # Filter skeleton to only include edges where both bodyparts are in use_bodyparts
+            if "skeleton" in cfg_dict:
+                cfg_dict["skeleton"] = [
+                    edge
+                    for edge in cfg_dict["skeleton"]
+                    if edge[0] in use_bodyparts_set and edge[1] in use_bodyparts_set
+                ]
 
         cfg_dict.update(kwargs)
 
@@ -328,7 +345,15 @@ def update_kpms_dj_config(
         if "use_bodyparts" in kwargs:
             use_bodyparts = list(kwargs.get("use_bodyparts"))
             cfg_dict["use_bodyparts"] = use_bodyparts
-            # NOTE: skeleton is NOT modified - it remains from the base config
+            use_bodyparts_set = set(use_bodyparts)
+
+            # Filter skeleton to only include edges where both bodyparts are in use_bodyparts
+            if "skeleton" in cfg_dict:
+                cfg_dict["skeleton"] = [
+                    edge
+                    for edge in cfg_dict["skeleton"]
+                    if edge[0] in use_bodyparts_set and edge[1] in use_bodyparts_set
+                ]
 
         cfg_dict.update(kwargs)
 
@@ -349,7 +374,15 @@ def update_kpms_dj_config(
         if "use_bodyparts" in kwargs:
             use_bodyparts = list(kwargs.get("use_bodyparts"))
             cfg_dict["use_bodyparts"] = use_bodyparts
-            # NOTE: skeleton is NOT modified - it remains from the base config
+            use_bodyparts_set = set(use_bodyparts)
+
+            # Filter skeleton to only include edges where both bodyparts are in use_bodyparts
+            if "skeleton" in cfg_dict:
+                cfg_dict["skeleton"] = [
+                    edge
+                    for edge in cfg_dict["skeleton"]
+                    if edge[0] in use_bodyparts_set and edge[1] in use_bodyparts_set
+                ]
 
         cfg_dict.update(kwargs)
 
