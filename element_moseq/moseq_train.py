@@ -1195,9 +1195,11 @@ class PreFit(dj.Computed):
         pre_kappa = float(pre_kappa)
         pre_num_iterations = int(pre_num_iterations)
         average_frame_rate = int(average_frame_rate)
+        task_mode = str(task_mode)
+        model_name = str(model_name) if model_name else ""
 
         # Convert list to tuple for immutability
-        use_bodyparts = tuple(use_bodyparts) if use_bodyparts else ()
+        use_bodyparts = tuple(str(bp) for bp in use_bodyparts) if use_bodyparts else ()
 
         # Normalize paths to strings
         kpms_project_output_dir = str(kpms_project_output_dir)
