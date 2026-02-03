@@ -1274,11 +1274,12 @@ class PreFit(dj.Computed):
         )
         pca_path = find_full_path(get_kpms_processed_data_dir(), pca_path)
 
-        # Fetch attach-type fields here (not in make_fetch) because they return
-        # temp file paths that change each fetch, breaking referential integrity
-        kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
-
         if task_mode == "trigger":
+            # Construct config file path (same pattern as FullFit)
+            # Don't fetch attach-type fields - they return temp paths that break referential integrity
+            kpms_dj_config_abs_path = kpms_reader._kpms_dj_config_path(
+                kpms_project_output_dir
+            )
             # Configure JAX precision
             import jax
 
