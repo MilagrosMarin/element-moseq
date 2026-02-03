@@ -804,43 +804,29 @@ def initialize_model_for_fitting(
     metadata: Dict[str, Any],
     pca: Any,
     kpms_dj_config_dict: Dict[str, Any],
-    pre_model: Union[str, Path, None],
+    pre_model: Union[str, Path],
     full_kappa: float,
     full_latent_dim: int,
 ) -> Any:
-    """Initialize model for fitting, using prefit if available.
+    """Initialize model for fitting using prefit model as warm start.
+
+    PreFit is required before FullFit to ensure good model quality.
+    The pre_model parameter must be a valid path to a prefit model file.
 
     Args:
-        data: Formatted keypoint data
-        metadata: Metadata dictionary
-        pca: PCA object
-        kpms_dj_config_dict: KPMS config dictionary
-        pre_model: Path to prefit model file (if available)
-        full_kappa: Kappa value for model fitting
-        full_latent_dim: Latent dimension for model fitting
+        data: Formatted keypoint data (unused when pre_model provided, kept for API compatibility)
+        metadata: Metadata dictionary (unused when pre_model provided, kept for API compatibility)
+        pca: PCA object (unused when pre_model provided, kept for API compatibility)
+        kpms_dj_config_dict: KPMS config dictionary (unused when pre_model provided, kept for API compatibility)
+        pre_model: Path to prefit model file (required)
+        full_kappa: Kappa value for model fitting (unused when pre_model provided, kept for API compatibility)
+        full_latent_dim: Latent dimension for model fitting (unused when pre_model provided, kept for API compatibility)
 
     Returns:
-        Initialized model ready for fitting
-
-    Raises:
-        ValueError: If model initialization fails
+        Path to prefit model file for use in fit_model
     """
-    import jax_moseq
-    from keypoint_moseq import init_model, update_hypparams
-
-    if pre_model is not None:
-        return pre_model
-
-    data = jax_moseq.utils.debugging.convert_data_precision(data)
-    model_to_fit = init_model(
-        data=data, metadata=metadata, pca=pca, **kpms_dj_config_dict
-    )
-    model_to_fit = update_hypparams(
-        model_to_fit,
-        kappa=float(full_kappa),
-        latent_dim=int(full_latent_dim),
-    )
-    return model_to_fit
+    # PreFit model is required - just return the path for fit_model to load
+    return pre_model
 
 
 def find_prefit_model(
@@ -849,8 +835,11 @@ def find_prefit_model(
     key: Dict[str, Any],
     full_kappa: float,
     full_latent_dim: int,
-) -> Union[str, Path, None]:
-    """Find the best PreFit model to use as warm start.
+) -> Union[str, Path]:
+    """Find the best PreFit model to use as warm start for FullFit.
+
+    PreFit is required before FullFit to ensure good model quality.
+    This function will raise an error if no matching PreFit model is found.
 
     Args:
         prefit_task_table: PreFitTask DataJoint table
@@ -860,7 +849,10 @@ def find_prefit_model(
         full_latent_dim: Latent dimension to match
 
     Returns:
-        Path to prefit model file if found, None otherwise
+        Path to prefit model file
+
+    Raises:
+        ValueError: If no PreFit model is found matching the required parameters
     """
     best_prefit_key = (
         prefit_task_table
@@ -871,27 +863,26 @@ def find_prefit_model(
         }
     ).fetch("KEY", order_by="pre_num_iterations desc", limit=1, as_dict=True)
 
-    if best_prefit_key:
-        pre_model_key = best_prefit_key[0]
-        prefit_file_query = (
-            prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
+    if not best_prefit_key:
+        raise ValueError(
+            f"No PreFit model found for kappa={full_kappa}, latent_dim={full_latent_dim}, "
+            f"key={key}. PreFit is required before FullFit to ensure good model quality. "
+            f"Please run PreFit first by inserting a PreFitTask with matching parameters."
         )
-        if prefit_file_query:
-            pre_model = prefit_file_query.fetch1("file_path")
-            logger.info(f"Using PreFit model {pre_model_key} as warm start for FullFit")
-            return pre_model
-        else:
-            logger.info(
-                f"PreFit model key {pre_model_key} found but model_data.pkl file not found. "
-                "Initializing model from scratch."
-            )
-    else:
-        logger.info(
-            f"No PreFit tasks found matching kappa={full_kappa}, "
-            f"latent_dim={full_latent_dim} for key {key}. "
-            "Initializing model from scratch."
+
+    pre_model_key = best_prefit_key[0]
+    prefit_file_query = prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
+
+    if not prefit_file_query:
+        raise ValueError(
+            f"PreFit task {pre_model_key} found but model_data.pkl file not found. "
+            f"The PreFit may not have completed successfully. "
+            f"Please check PreFit status and re-run if needed."
         )
-    return None
+
+    pre_model = prefit_file_query.fetch1("file_path")
+    logger.info(f"Using PreFit model {pre_model_key} as warm start for FullFit")
+    return pre_model
 
 
 def compute_syllable_metrics(
