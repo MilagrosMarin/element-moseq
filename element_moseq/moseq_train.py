@@ -1187,9 +1187,6 @@ class PreFit(dj.Computed):
 
         pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
-        coordinates, confidences = (PreProcessing & key).fetch1(
-            "coordinates", "confidences"
-        )
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
         kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
 
@@ -1216,8 +1213,6 @@ class PreFit(dj.Computed):
             model_name,
             pca_path,
             use_bodyparts,
-            coordinates,
-            confidences,
             average_frame_rate,
             kpms_dj_config_abs_path,
         )
@@ -1233,8 +1228,6 @@ class PreFit(dj.Computed):
         model_name,
         pca_path,
         use_bodyparts,
-        coordinates,
-        confidences,
         average_frame_rate,
         kpms_dj_config_abs_path,
     ):
@@ -1252,8 +1245,6 @@ class PreFit(dj.Computed):
             model_name (str): Name of the model.
             pca_path (str): Path to PCA file.
             use_bodyparts (tuple): Bodyparts to use.
-            coordinates (dict): Cleaned coordinates.
-            confidences (dict): Cleaned confidences.
             average_frame_rate (int): Average frame rate.
             kpms_dj_config_abs_path (str): Path to config file.
 
@@ -1289,6 +1280,12 @@ class PreFit(dj.Computed):
             from keypoint_moseq import estimate_sigmasq_loc
 
             pca = load_pca(Path(pca_path).parent.as_posix())
+
+            # Fetch coordinates and confidences (done here, not in make_fetch,
+            # because numpy array dicts don't hash consistently for referential integrity)
+            coordinates, confidences = (PreProcessing & key).fetch1(
+                "coordinates", "confidences"
+            )
 
             data, metadata = format_data(
                 coordinates=coordinates,
