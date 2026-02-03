@@ -1606,6 +1606,18 @@ class FullFit(dj.Computed):
         fitting_progress_plot_pdf: attach
         """
 
+    @property
+    def key_source(self):
+        """Only process FullFitTask entries where a matching PreFit exists.
+
+        Matches on kpset_id, bodyparts_id, and latent_dim.
+        PreFit must be complete (not just PreFitTask) to ensure model quality.
+        This prevents errors from attempting FullFit before PreFit is ready.
+        """
+        return FullFitTask & (PreFit * PreFitTask).proj(
+            "kpset_id", "bodyparts_id", full_latent_dim="pre_latent_dim"
+        )
+
     def make_fetch(self, key):
         """Fetch required data for FullFit from database tables."""
         kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
