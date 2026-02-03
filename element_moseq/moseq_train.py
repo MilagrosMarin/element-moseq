@@ -1173,6 +1173,12 @@ class PreFit(dj.Computed):
 
         Returns:
             tuple: All data needed for model fitting computation.
+
+        Note:
+            - Do NOT fetch `attach` type fields here (e.g., config_file) because
+              they return temp paths that change each fetch, breaking referential integrity.
+            - Do NOT fetch large blob fields (e.g., coordinates, confidences) because
+              numpy arrays don't hash consistently.
         """
         kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
         pre_latent_dim, pre_kappa, pre_num_iterations, task_mode, model_name = (
@@ -1188,7 +1194,6 @@ class PreFit(dj.Computed):
         pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
-        kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
 
         # Convert numpy types to Python native types for referential integrity
         pre_latent_dim = int(pre_latent_dim)
@@ -1204,7 +1209,6 @@ class PreFit(dj.Computed):
         # Normalize paths to strings
         kpms_project_output_dir = str(kpms_project_output_dir)
         pca_path = str(pca_path)
-        kpms_dj_config_abs_path = str(kpms_dj_config_abs_path)
 
         return (
             kpms_project_output_dir,
@@ -1216,7 +1220,6 @@ class PreFit(dj.Computed):
             pca_path,
             use_bodyparts,
             average_frame_rate,
-            kpms_dj_config_abs_path,
         )
 
     def make_compute(
@@ -1231,7 +1234,6 @@ class PreFit(dj.Computed):
         pca_path,
         use_bodyparts,
         average_frame_rate,
-        kpms_dj_config_abs_path,
     ):
         """Compute PreFit AR-HMM model fitting.
 
@@ -1248,7 +1250,6 @@ class PreFit(dj.Computed):
             pca_path (str): Path to PCA file.
             use_bodyparts (tuple): Bodyparts to use.
             average_frame_rate (int): Average frame rate.
-            kpms_dj_config_abs_path (str): Path to config file.
 
         Returns:
             tuple: Results needed for database insertion.
@@ -1272,6 +1273,10 @@ class PreFit(dj.Computed):
             get_kpms_processed_data_dir(), kpms_project_output_dir
         )
         pca_path = find_full_path(get_kpms_processed_data_dir(), pca_path)
+
+        # Fetch attach-type fields here (not in make_fetch) because they return
+        # temp file paths that change each fetch, breaking referential integrity
+        kpms_dj_config_abs_path = (PreProcessing.ConfigFile & key).fetch1("config_file")
 
         if task_mode == "trigger":
             # Configure JAX precision
