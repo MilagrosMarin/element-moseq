@@ -823,10 +823,17 @@ def initialize_model_for_fitting(
         full_latent_dim: Latent dimension for model fitting (unused when pre_model provided, kept for API compatibility)
 
     Returns:
-        Path to prefit model file for use in fit_model
+        Loaded model dictionary for use in fit_model
     """
-    # PreFit model is required - just return the path for fit_model to load
-    return pre_model
+    import pickle
+    from pathlib import Path
+
+    # Load the prefit model from the pkl file
+    pre_model_path = Path(pre_model)
+    with open(pre_model_path, "rb") as f:
+        model = pickle.load(f)
+
+    return model
 
 
 def find_prefit_model(
