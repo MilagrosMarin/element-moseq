@@ -584,13 +584,7 @@ class PreProcessing(dj.Computed):
         execution_time,
         duration_seconds,
     ):
-        """
-        Insert processed data into the PreProcessing table and part tables.
-        """
-        # Force reconnect after long computation to prevent stale connection errors
-        dj.conn().connect()
-
-        # Insert in the main table
+        """Insert processed data into the PreProcessing table and part tables."""
         self.insert1(
             {
                 **key,
@@ -602,7 +596,6 @@ class PreProcessing(dj.Computed):
             }
         )
 
-        # Insert video metadata in Video table
         if video_metadata_dict:
             self.Video.insert(
                 [
@@ -617,7 +610,6 @@ class PreProcessing(dj.Computed):
                 ]
             )
 
-        # Insert configuration files
         self.ConfigFile.insert1(
             {
                 **key,
@@ -801,14 +793,7 @@ class PreProcessingQA(dj.Computed):
         qa_data,
         duration_seconds,
     ):
-        """
-        Insert QA data into the PreProcessingQA table and part tables.
-        """
-        import datajoint as dj
-
-        dj.conn().connect()
-
-        # Insert in the main table
+        """Insert QA data into the PreProcessingQA table and part tables."""
         self.insert1(
             {
                 **key,
@@ -817,7 +802,6 @@ class PreProcessingQA(dj.Computed):
             }
         )
 
-        # Insert QA materials (plots and videos)
         for data in qa_data:
             self.VideoQA.insert1(
                 {
@@ -1423,13 +1407,7 @@ class PreFit(dj.Computed):
         duration_seconds,
         kpms_project_output_dir,
     ):
-        """Insert PreFit results into database tables.
-
-        This runs in a short database transaction after computation completes.
-        """
-        # Force reconnect after long computation to prevent stale connection errors
-        dj.conn().connect()
-
+        """Insert PreFit results into database tables."""
         self.insert1(
             {
                 **key,
@@ -1863,9 +1841,6 @@ class FullFit(dj.Computed):
         kpms_project_output_dir,
     ):
         """Insert FullFit results into database tables."""
-        # Force reconnect after long computation to prevent stale connection errors
-        dj.conn().connect()
-
         completion_time = datetime.now(timezone.utc)
 
         self.insert1(

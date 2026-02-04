@@ -479,8 +479,6 @@ class TrajectoryPlot(dj.Computed):
             }
         )
 
-        # Insert only syllables with all required files
-        # Use actual file paths found (in case files are in subdirectories)
         for syllable in sorted(syllables_with_all_files):
             self.Syllable.insert1(
                 {
