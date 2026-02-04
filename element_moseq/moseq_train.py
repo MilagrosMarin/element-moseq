@@ -1614,9 +1614,9 @@ class FullFit(dj.Computed):
         PreFit must be complete (not just PreFitTask) to ensure model quality.
         This prevents errors from attempting FullFit before PreFit is ready.
         """
-        return FullFitTask & (PreFit * PreFitTask).proj(
-            "kpset_id", "bodyparts_id", full_latent_dim="pre_latent_dim"
-        )
+        # Use PreFit.proj() to get only primary keys (avoids join conflict on model_name)
+        # PreFit PK includes: kpset_id, bodyparts_id, pre_latent_dim, pre_kappa, pre_num_iterations
+        return FullFitTask & PreFit.proj(full_latent_dim="pre_latent_dim")
 
     def make_fetch(self, key):
         """Fetch required data for FullFit from database tables."""
