@@ -587,6 +587,8 @@ class PreProcessing(dj.Computed):
         """
         Insert processed data into the PreProcessing table and part tables.
         """
+        # Force reconnect after long computation to prevent stale connection errors
+        dj.conn().connect()
 
         # Insert in the main table
         self.insert1(
@@ -1425,6 +1427,9 @@ class PreFit(dj.Computed):
 
         This runs in a short database transaction after computation completes.
         """
+        # Force reconnect after long computation to prevent stale connection errors
+        dj.conn().connect()
+
         self.insert1(
             {
                 **key,
@@ -1858,6 +1863,9 @@ class FullFit(dj.Computed):
         kpms_project_output_dir,
     ):
         """Insert FullFit results into database tables."""
+        # Force reconnect after long computation to prevent stale connection errors
+        dj.conn().connect()
+
         completion_time = datetime.now(timezone.utc)
 
         self.insert1(
