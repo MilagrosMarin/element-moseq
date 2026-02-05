@@ -435,6 +435,12 @@ class Inference(dj.Computed):
 
             data = jax_moseq.utils.debugging.convert_data_precision(data)
 
+            # Delete existing results.h5 if present (workaround for keypoint-moseq bug
+            # where overwrite=True is not passed through to save_hdf5)
+            results_path = inference_output_dir / "results.h5"
+            if results_path.exists():
+                results_path.unlink()
+
             # Apply saved model to new data
             results = apply_model(
                 model=fullfit_model,
