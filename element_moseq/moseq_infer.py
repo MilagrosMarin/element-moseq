@@ -457,13 +457,23 @@ class Inference(dj.Computed):
                 save_dir=(inference_output_dir / "results_as_csv").as_posix(),
             )
 
-            # Save coordinates and confidences to pickle files
+            # Filter coordinates and confidences to only include use_bodyparts
+            # This ensures consistency with skeleton indexing in TrajectoryPlot
+            bp_indices = [formatted_bodyparts.index(bp) for bp in use_bodyparts]
+            filtered_coordinates = {
+                key: coords[:, bp_indices, :] for key, coords in coordinates.items()
+            }
+            filtered_confidences = {
+                key: conf[:, bp_indices] for key, conf in confidences.items()
+            }
+
+            # Save filtered coordinates and confidences to pickle files
             coordinates_filepath = inference_output_dir / "coordinates.pkl"
             confidences_filepath = inference_output_dir / "confidences.pkl"
             with open(coordinates_filepath, "wb") as f:
-                pickle.dump(coordinates, f)
+                pickle.dump(filtered_coordinates, f)
             with open(confidences_filepath, "wb") as f:
-                pickle.dump(confidences, f)
+                pickle.dump(filtered_confidences, f)
 
             end_time = datetime.now(timezone.utc)
             duration_seconds = (end_time - start_time).total_seconds()
