@@ -799,96 +799,23 @@ def find_checkpoint_file(model_name_full_path: Union[str, os.PathLike]) -> Path:
     raise FileNotFoundError(f"No checkpoint files found in {model_name_full_path}")
 
 
-def initialize_model_for_fitting(
-    data: Dict[str, Any],
-    metadata: Dict[str, Any],
-    pca: Any,
-    kpms_dj_config_dict: Dict[str, Any],
-    pre_model: Union[str, Path],
-    full_kappa: float,
-    full_latent_dim: int,
-) -> Any:
-    """Initialize model for fitting using prefit model as warm start.
-
-    PreFit is required before FullFit to ensure good model quality.
-    The pre_model parameter must be a valid path to a prefit model file.
+def load_prefit_model(pre_model_path: Union[str, Path]) -> Any:
+    """Load a PreFit model from a pickle file for use as warm start in FullFit.
 
     Args:
-        data: Formatted keypoint data (unused when pre_model provided, kept for API compatibility)
-        metadata: Metadata dictionary (unused when pre_model provided, kept for API compatibility)
-        pca: PCA object (unused when pre_model provided, kept for API compatibility)
-        kpms_dj_config_dict: KPMS config dictionary (unused when pre_model provided, kept for API compatibility)
-        pre_model: Path to prefit model file (required)
-        full_kappa: Kappa value for model fitting (unused when pre_model provided, kept for API compatibility)
-        full_latent_dim: Latent dimension for model fitting (unused when pre_model provided, kept for API compatibility)
+        pre_model_path: Path to the model_data.pkl file from a completed PreFit.
 
     Returns:
-        Loaded model dictionary for use in fit_model
+        Loaded model dictionary for use in fit_model.
     """
     import pickle
-    from pathlib import Path
 
-    # Load the prefit model from the pkl file
-    pre_model_path = Path(pre_model)
+    pre_model_path = Path(pre_model_path)
     with open(pre_model_path, "rb") as f:
         model = pickle.load(f)
 
+    logger.info(f"Loaded PreFit model from {pre_model_path}")
     return model
-
-
-def find_prefit_model(
-    prefit_task_table,
-    prefit_file_table,
-    key: Dict[str, Any],
-    full_kappa: float,
-    full_latent_dim: int,
-) -> Union[str, Path]:
-    """Find the best PreFit model to use as warm start for FullFit.
-
-    PreFit is required before FullFit to ensure good model quality.
-    This function selects the PreFit with matching latent_dim and the highest kappa
-    (PreFit kappa >> FullFit kappa by design - typically 10-100x higher).
-
-    Args:
-        prefit_task_table: PreFitTask DataJoint table
-        prefit_file_table: PreFit.File DataJoint table
-        key: Primary key for querying (kpset_id, bodyparts_id)
-        full_kappa: FullFit kappa value (not used for matching, only for logging)
-        full_latent_dim: Latent dimension to match
-
-    Returns:
-        Path to prefit model file
-
-    Raises:
-        ValueError: If no PreFit model is found matching the required parameters
-    """
-    # Match on kpset_id, bodyparts_id, and latent_dim only (NOT kappa)
-    # PreFit kappa is intentionally much higher than FullFit kappa
-    # Select the PreFit with highest kappa (best quality initialization)
-    best_prefit_key = (
-        prefit_task_table & key & {"pre_latent_dim": full_latent_dim}
-    ).fetch("KEY", order_by="pre_kappa desc", limit=1, as_dict=True)
-
-    if not best_prefit_key:
-        raise ValueError(
-            f"No PreFit model found for latent_dim={full_latent_dim}, "
-            f"key={key}. PreFit is required before FullFit to ensure good model quality. "
-            f"Please run PreFit first with matching latent_dim."
-        )
-
-    pre_model_key = best_prefit_key[0]
-    prefit_file_query = prefit_file_table & pre_model_key & 'file_name="model_data.pkl"'
-
-    if not prefit_file_query:
-        raise ValueError(
-            f"PreFit task {pre_model_key} found but model_data.pkl file not found. "
-            f"The PreFit may not have completed successfully. "
-            f"Please check PreFit status and re-run if needed."
-        )
-
-    pre_model = prefit_file_query.fetch1("file_path")
-    logger.info(f"Using PreFit model {pre_model_key} as warm start for FullFit")
-    return pre_model
 
 
 def compute_syllable_metrics(

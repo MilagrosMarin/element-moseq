@@ -3,6 +3,22 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.0] - 2026-02-12
+
+> **BREAKING CHANGES** - This version contains breaking schema changes. Tables must be dropped and recreated.
+
+### Breaking Changes
++ **BREAKING**: `FullFitTask` now depends on `PreFit` instead of `PCAFit` — the pipeline flow is always PreFit → FullFitTask → FullFit
++ **BREAKING**: Rename `pre_latent_dim` to `latent_dim` in `PreFitTask`/`PreFit` — shared by both stages
++ **BREAKING**: Remove `full_latent_dim` from `FullFitTask`/`FullFit` — inherited from `PreFit` via FK
++ **BREAKING**: Remove `full_kappa` secondary attribute from `FullFitQA` — now available as PK attribute via `FullFit` FK
+
+### Changes
++ Remove `FullFit.key_source` property — no longer needed since PreFit dependency is structural
++ Simplify PreFit model loading in `FullFit.make_compute` — fetch directly via FK chain instead of searching
++ Replace `find_prefit_model` and `initialize_model_for_fitting` with simpler `load_prefit_model` in `kpms_reader.py`
++ Update tests to reflect renamed attributes
+
 ## [1.2.1] - 2025-11-26
 + Fix - Fix `KeyError` in `FullFit` when querying `PreFitTask`
 + Fix - Set `set_mixed_map_gpus` to 6 in `FullFit` to reduce GPU memory usage

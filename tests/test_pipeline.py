@@ -158,7 +158,7 @@ class TestMoseqTrainTables:
         """Verify PreFitTask has expected attributes."""
         moseq_train = pipeline["moseq_train"]
         heading = moseq_train.PreFitTask.heading
-        assert "pre_latent_dim" in heading.primary_key
+        assert "latent_dim" in heading.primary_key
         assert "pre_kappa" in heading.primary_key
         assert "task_mode" in heading.secondary_attributes
 
@@ -198,7 +198,7 @@ class TestMoseqTrainTables:
         """Verify FullFitTask has expected attributes."""
         moseq_train = pipeline["moseq_train"]
         heading = moseq_train.FullFitTask.heading
-        assert "full_latent_dim" in heading.primary_key
+        assert "latent_dim" in heading.primary_key
         assert "full_kappa" in heading.primary_key
         assert "task_mode" in heading.secondary_attributes
 

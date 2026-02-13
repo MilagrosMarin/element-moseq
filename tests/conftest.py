@@ -185,7 +185,7 @@ def insert_prefit_task_trigger(pipeline, insert_pca_task):
     # First need PCAFit to exist
     prefit_task_key = {
         **pca_key,
-        "pre_latent_dim": 4,
+        "latent_dim": 4,
         "pre_kappa": 1000,
         "pre_num_iterations": 3,
         "model_name": "",
@@ -205,7 +205,7 @@ def insert_prefit_task_load(pipeline, insert_pca_task):
 
     prefit_task_key = {
         **pca_key,
-        "pre_latent_dim": 4,
+        "latent_dim": 4,
         "pre_kappa": 2000,
         "pre_num_iterations": 10,
         "model_name": "test_model",  # Must specify model_name for load mode

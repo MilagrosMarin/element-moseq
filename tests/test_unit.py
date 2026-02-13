@@ -68,12 +68,12 @@ class TestKpmsReaderHelpers:
         assert hasattr(kpms_reader, "find_checkpoint_file")
         assert callable(kpms_reader.find_checkpoint_file)
 
-    def test_find_prefit_model(self):
-        """Test find_prefit_model function exists and is callable."""
+    def test_load_prefit_model(self):
+        """Test load_prefit_model function exists and is callable."""
         from element_moseq.readers import kpms_reader
 
-        assert hasattr(kpms_reader, "find_prefit_model")
-        assert callable(kpms_reader.find_prefit_model)
+        assert hasattr(kpms_reader, "load_prefit_model")
+        assert callable(kpms_reader.load_prefit_model)
 
     def test_video_extensions_in_reader(self):
         """Test VIDEO_EXTENSIONS constant is in kpms_reader."""

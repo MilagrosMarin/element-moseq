@@ -149,7 +149,7 @@ class TestModelFitting:
         heading = moseq_train.PreFitTask.heading
 
         # Should have model parameters
-        assert "pre_latent_dim" in heading.names
+        assert "latent_dim" in heading.names
         assert "pre_kappa" in heading.names
         assert "pre_num_iterations" in heading.names
         assert "task_mode" in heading.names
@@ -160,7 +160,7 @@ class TestModelFitting:
         heading = moseq_train.FullFitTask.heading
 
         # Should have model parameters
-        assert "full_latent_dim" in heading.names
+        assert "latent_dim" in heading.names
         assert "full_kappa" in heading.names
         assert "full_num_iterations" in heading.names
         assert "task_mode" in heading.names

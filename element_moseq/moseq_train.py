@@ -1080,7 +1080,7 @@ class PreFitTask(dj.Manual):
 
     Attributes:
         PCAFit (foreign key)                : `PCAFit` task.
-        pre_latent_dim (int)                : Latent dimension to use for the model pre-fitting.
+        latent_dim (int)                    : Latent dimension for model fitting (shared by PreFit and FullFit).
         pre_kappa (int)                     : Kappa value to use for the model pre-fitting (controls syllable duration).
         pre_num_iterations (int)            : Number of Gibbs sampling iterations to run in the model pre-fitting (typically 10-50).
         model_name (varchar)                : Name of the model to be loaded if `task_mode='load'`
@@ -1090,7 +1090,7 @@ class PreFitTask(dj.Manual):
 
     definition = """
     -> PCAFit                                            # `PCAFit` Key
-    pre_latent_dim               : int                   # Latent dimension to use for the model pre-fitting.
+    latent_dim                   : int                   # Latent dimension for model fitting (shared by PreFit and FullFit).
     pre_kappa                    : int                   # Kappa value to use for the model pre-fitting (controls syllable duration).
     pre_num_iterations           : int                   # Number of Gibbs sampling iterations to run in the model pre-fitting (typically 10-50).
     ---
@@ -1167,10 +1167,10 @@ class PreFit(dj.Computed):
               numpy arrays don't hash consistently.
         """
         kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
-        pre_latent_dim, pre_kappa, pre_num_iterations, task_mode, model_name = (
+        latent_dim, pre_kappa, pre_num_iterations, task_mode, model_name = (
             PreFitTask & key
         ).fetch1(
-            "pre_latent_dim",
+            "latent_dim",
             "pre_kappa",
             "pre_num_iterations",
             "task_mode",
@@ -1182,7 +1182,7 @@ class PreFit(dj.Computed):
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
         # Convert numpy types to Python native types for referential integrity
-        pre_latent_dim = int(pre_latent_dim)
+        latent_dim = int(latent_dim)
         pre_kappa = float(pre_kappa)
         pre_num_iterations = int(pre_num_iterations)
         average_frame_rate = int(average_frame_rate)
@@ -1196,7 +1196,7 @@ class PreFit(dj.Computed):
 
         return (
             kpms_project_output_dir,
-            pre_latent_dim,
+            latent_dim,
             pre_kappa,
             pre_num_iterations,
             task_mode,
@@ -1210,7 +1210,7 @@ class PreFit(dj.Computed):
         self,
         key,
         kpms_project_output_dir,
-        pre_latent_dim,
+        latent_dim,
         pre_kappa,
         pre_num_iterations,
         task_mode,
@@ -1226,7 +1226,7 @@ class PreFit(dj.Computed):
         Args:
             key (dict): Dictionary with the `PreFitTask` Key.
             kpms_project_output_dir (str): Project output directory path.
-            pre_latent_dim (int): Latent dimension for model fitting.
+            latent_dim (int): Latent dimension for model fitting.
             pre_kappa (float): Kappa value for model fitting.
             pre_num_iterations (int): Number of Gibbs sampling iterations.
             task_mode (str): 'trigger' or 'load'.
@@ -1292,7 +1292,7 @@ class PreFit(dj.Computed):
             _ = kpms_reader.update_kpms_dj_config(
                 config_dict=kpms_dj_config_dict,
                 config_path=kpms_dj_config_abs_path,
-                latent_dim=int(pre_latent_dim),
+                latent_dim=int(latent_dim),
                 kappa=float(pre_kappa),
                 sigmasq_loc=float(
                     estimate_sigmasq_loc(
@@ -1315,11 +1315,11 @@ class PreFit(dj.Computed):
             model = update_hypparams(
                 model,
                 kappa=float(pre_kappa),
-                latent_dim=int(pre_latent_dim),
+                latent_dim=int(latent_dim),
             )
             # Determine model directory name for outputs
             if model_name is None or not str(model_name).strip():
-                model_name = f"latent_dim_{int(pre_latent_dim)}_kappa_{float(pre_kappa)}_iters_{int(pre_num_iterations)}"
+                model_name = f"latent_dim_{int(latent_dim)}_kappa_{float(pre_kappa)}_iters_{int(pre_num_iterations)}"
             else:
                 model_name = str(model_name)
 
@@ -1514,8 +1514,7 @@ class FullFitTask(dj.Manual):
     """Define parameters for FullFit step of model fitting.
 
     Attributes:
-        PCAFit (foreign key)                 : `PCAFit` Key.
-        full_latent_dim (int)                : Latent dimension to use for the model full fitting.
+        PreFit (foreign key)                 : `PreFit` Key. FullFit always starts from a completed PreFit.
         full_kappa (int)                     : Kappa value to use for the model full fitting (typically lower than pre-fit kappa).
         full_num_iterations (int)            : Number of Gibbs sampling iterations to run in the model full fitting (typically 200-500).
         model_name (varchar)                 : Name of the model to be loaded if `task_mode='load'`
@@ -1524,8 +1523,7 @@ class FullFitTask(dj.Manual):
     """
 
     definition = """
-    -> PCAFit                                           # `PCAFit` Key
-    full_latent_dim              : int                  # Latent dimension to use for the model full fitting
+    -> PreFit                                           # `PreFit` Key. FullFit always starts from a completed PreFit.
     full_kappa                   : int                  # Kappa value to use for the model full fitting (typically lower than pre-fit kappa).
     full_num_iterations          : int                  # Number of Gibbs sampling iterations to run in the model full fitting (typically 200-500).
     ---
@@ -1589,25 +1587,12 @@ class FullFit(dj.Computed):
         fitting_progress_plot_pdf: attach
         """
 
-    @property
-    def key_source(self):
-        """Only process FullFitTask entries where a matching PreFit exists.
-
-        Matches on kpset_id, bodyparts_id, and latent_dim.
-        PreFit must be complete (not just PreFitTask) to ensure model quality.
-        This prevents errors from attempting FullFit before PreFit is ready.
-        """
-        # Use PreFit.proj() to get only primary keys (avoids join conflict on model_name)
-        # PreFit PK includes: kpset_id, bodyparts_id, pre_latent_dim, pre_kappa, pre_num_iterations
-        return FullFitTask & PreFit.proj(full_latent_dim="pre_latent_dim")
-
     def make_fetch(self, key):
         """Fetch required data for FullFit from database tables."""
         kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
-        full_latent_dim, full_kappa, full_num_iterations, task_mode, model_name = (
+        full_kappa, full_num_iterations, task_mode, model_name = (
             FullFitTask & key
         ).fetch1(
-            "full_latent_dim",
             "full_kappa",
             "full_num_iterations",
             "task_mode",
@@ -1618,8 +1603,10 @@ class FullFit(dj.Computed):
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
+        # latent_dim is inherited from PreFit through FK chain
+        latent_dim = int(key["latent_dim"])
+
         # Convert numpy types to Python native types for referential integrity
-        full_latent_dim = int(full_latent_dim)
         full_kappa = float(full_kappa)
         full_num_iterations = int(full_num_iterations)
         average_frame_rate = int(
@@ -1636,7 +1623,7 @@ class FullFit(dj.Computed):
 
         return (
             kpms_project_output_dir,
-            full_latent_dim,
+            latent_dim,
             full_kappa,
             full_num_iterations,
             task_mode,
@@ -1650,7 +1637,7 @@ class FullFit(dj.Computed):
         self,
         key,
         kpms_project_output_dir,
-        full_latent_dim,
+        latent_dim,
         full_kappa,
         full_num_iterations,
         task_mode,
@@ -1707,7 +1694,7 @@ class FullFit(dj.Computed):
                 confidences=confidences,
                 use_bodyparts=use_bodyparts,
                 average_frame_rate=average_frame_rate,
-                latent_dim=full_latent_dim,
+                latent_dim=latent_dim,
                 kappa=full_kappa,
                 get_kpms_processed_data_dir=get_kpms_processed_data_dir,
                 find_full_path=find_full_path,
@@ -1715,28 +1702,18 @@ class FullFit(dj.Computed):
 
             # Generate model name if not provided
             if model_name is None or not str(model_name).strip():
-                model_name = f"latent_dim_{int(full_latent_dim)}_kappa_{float(full_kappa)}_iters_{int(full_num_iterations)}"
+                model_name = f"latent_dim_{int(latent_dim)}_kappa_{float(full_kappa)}_iters_{int(full_num_iterations)}"
             else:
                 model_name = str(model_name)
 
-            # Find prefit model
-            pre_model = kpms_reader.find_prefit_model(
-                PreFitTask, PreFit.File, key, full_kappa, full_latent_dim
+            # Load PreFit model directly via FK chain (PreFit is a structural dependency)
+            pre_model_path = (PreFit.File & key & 'file_name="model_data.pkl"').fetch1(
+                "file_path"
             )
-
-            # Initialize model
-            try:
-                model_to_fit = kpms_reader.initialize_model_for_fitting(
-                    data,
-                    metadata,
-                    pca,
-                    kpms_dj_config_dict,
-                    pre_model,
-                    full_kappa,
-                    full_latent_dim,
-                )
-            except Exception as e:
-                raise ValueError(f"Model initialization failed: {e}")
+            pre_model_path = find_full_path(
+                get_kpms_processed_data_dir(), pre_model_path
+            )
+            model_to_fit = kpms_reader.load_prefit_model(pre_model_path)
 
             # Ensure data precision is converted before fit_model
             data = jax_moseq.utils.debugging.convert_data_precision(data)
@@ -1892,7 +1869,6 @@ class FullFitQA(dj.Computed):
 
     Attributes:
         FullFit (foreign key)                    : `FullFit` Key
-        full_kappa (int)                         : Kappa value used for this FullFit (from FullFitTask)
         num_syllables (int)                      : Number of unique syllables discovered
         median_syllable_duration_ms (float)       : Median syllable duration in milliseconds (target: 400ms)
     """
@@ -1900,7 +1876,6 @@ class FullFitQA(dj.Computed):
     definition = """
     -> FullFit
     ---
-    full_kappa=NULL                    : int              # Kappa value used (from FullFitTask) for easy comparison
     num_syllables=NULL                 : int              # Number of unique syllables discovered
     median_syllable_duration_ms=NULL  : float            # Median syllable duration in milliseconds (target: 400ms)
     """
@@ -1933,16 +1908,10 @@ class FullFitQA(dj.Computed):
         # Get average frame rate for converting to seconds
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
-        # Get kappa value from FullFitTask for easy comparison
-        full_kappa = (FullFitTask & key).fetch1("full_kappa")
-
         # Compute comprehensive metrics (median, mean, std, percentiles, distance from target, etc.)
         aggregate_metrics = kpms_reader.compute_syllable_metrics(
             checkpoint_file=checkpoint_file, fps=float(average_frame_rate)
         )
-
-        # Add kappa value to metrics for easy comparison
-        aggregate_metrics["full_kappa"] = int(full_kappa)
 
         # Insert aggregate results
         self.insert1({**key, **aggregate_metrics})
