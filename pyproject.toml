@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "element-moseq"
-version = "1.2.1"
+version = "1.3.0"
 description = "Keypoint-MoSeq DataJoint Element"
 readme = "README.md"
 license = {text = "MIT"}
@@ -20,7 +20,7 @@ classifiers = [
 ]
 requires-python = ">=3.10,<3.12"
 dependencies = [
-    "datajoint>=0.14.6,<2.0",
+    "datajoint==0.14.8",
     "numpy",
     "matplotlib",
     "h5py",
