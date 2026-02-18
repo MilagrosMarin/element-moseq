@@ -1408,10 +1408,13 @@ class PreFit(dj.Computed):
         kpms_project_output_dir,
     ):
         """Insert PreFit results into database tables."""
+        completion_time = datetime.now(timezone.utc)
+
         self.insert1(
             {
                 **key,
                 "model_name": model_name,
+                "pre_fit_time": completion_time,
                 "pre_fit_duration": duration_seconds,
             }
         )
