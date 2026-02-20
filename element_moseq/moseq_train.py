@@ -1658,6 +1658,7 @@ class FullFit(dj.Computed):
             fit_model,
             load_checkpoint,
             reindex_syllables_in_checkpoint,
+            update_hypparams,
         )
 
         execution_time = datetime.now(timezone.utc)
@@ -1717,6 +1718,10 @@ class FullFit(dj.Computed):
                 get_kpms_processed_data_dir(), pre_model_path
             )
             model_to_fit = kpms_reader.load_prefit_model(pre_model_path)
+
+            # Update model hyperparameters with full_kappa
+            # The PreFit model has pre_kappa baked in; we must override with full_kappa
+            model_to_fit = update_hypparams(model_to_fit, kappa=float(full_kappa))
 
             # Ensure data precision is converted before fit_model
             data = jax_moseq.utils.debugging.convert_data_precision(data)

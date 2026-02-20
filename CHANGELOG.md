@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.3] - 2026-02-20
+
++ Fix - `FullFit.make_compute` was not applying `full_kappa` to the model hyperparameters. The PreFit model (with `pre_kappa` baked in) was loaded but `update_hypparams(model, kappa=full_kappa)` was never called, causing all FullFit models to train with `pre_kappa` regardless of the `full_kappa` value in `FullFitTask`. This resulted in identical QA metrics and model scores across different kappa values. Introduced in v1.3.0 when `find_prefit_model`/`initialize_model_for_fitting` were replaced with `load_prefit_model`.
+
 ## [1.3.2] - 2026-02-20
 
 + Fix - `TrajectoryPlot` grid movie generation crashes with `ValueError: frame number requested outside video bounds` when DLC coordinate files have more frames than the actual video (see [keypoint-moseq#149](https://github.com/dattalab/keypoint-moseq/issues/149)). Build `video_frame_indexes` that clamps frame indices to each video's actual length before calling `generate_grid_movies`.
