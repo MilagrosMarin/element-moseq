@@ -390,6 +390,34 @@ class TrajectoryPlot(dj.Computed):
             grid_movies_kwargs["keypoints_only"] = True
             grid_movies_kwargs["video_dir"] = kpset_dir
 
+        # Build video_frame_indexes to handle frame count mismatches between
+        # DLC coordinate files and actual video files (see keypoint-moseq#149).
+        # Without this, generate_grid_movies assumes a 1:1 frame mapping
+        # which causes ValueError when coordinates have more frames than video.
+        used_video_paths = grid_movies_kwargs.get("video_paths")
+        used_results = grid_movies_kwargs.get("results", results)
+        if used_video_paths:
+            import cv2
+
+            video_frame_indexes = {}
+            for vkey, vpath in used_video_paths.items():
+                cap = cv2.VideoCapture(vpath)
+                n_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap.release()
+                n_result_frames = len(used_results[vkey]["syllable"])
+                if n_result_frames > n_video_frames:
+                    logger.warning(
+                        f"Frame count mismatch for '{vkey}': "
+                        f"results have {n_result_frames} frames but video has "
+                        f"{n_video_frames} frames. Clamping frame indices to video bounds."
+                    )
+                    video_frame_indexes[vkey] = np.minimum(
+                        np.arange(n_result_frames), n_video_frames - 1
+                    )
+                else:
+                    video_frame_indexes[vkey] = np.arange(n_result_frames)
+            grid_movies_kwargs["video_frame_indexes"] = video_frame_indexes
+
         generate_grid_movies(**grid_movies_kwargs)
 
         # Calculate duration

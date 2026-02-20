@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.2] - 2026-02-20
+
++ Fix - `TrajectoryPlot` grid movie generation crashes with `ValueError: frame number requested outside video bounds` when DLC coordinate files have more frames than the actual video (see [keypoint-moseq#149](https://github.com/dattalab/keypoint-moseq/issues/149)). Build `video_frame_indexes` that clamps frame indices to each video's actual length before calling `generate_grid_movies`.
+
 ## [1.3.0] - 2026-02-12
 
 > **BREAKING CHANGES** - This version contains breaking schema changes. Tables must be dropped and recreated.
