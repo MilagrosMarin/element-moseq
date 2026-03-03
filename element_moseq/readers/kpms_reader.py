@@ -827,13 +827,17 @@ def compute_syllable_metrics(
     aggregate statistics about syllable durations, which are useful for evaluating
     model quality and determining appropriate kappa values.
 
+    Syllable counting applies frequency filtering (MIN_FREQUENCY = 0.5%) to match
+    the convention in Weinreb et al. 2024 — rare syllables below the threshold are
+    excluded from the count.
+
     Args:
         checkpoint_file: Path to checkpoint.h5 file
         fps: Frames per second for converting durations to seconds
 
     Returns:
         Dictionary with essential syllable quality metrics:
-            - num_syllables: Number of unique syllables discovered
+            - num_syllables: Number of syllables exceeding MIN_FREQUENCY threshold
             - median_syllable_duration_ms: Median duration in milliseconds (KEY METRIC - target: 400ms)
 
     Raises:
@@ -841,6 +845,8 @@ def compute_syllable_metrics(
         ValueError: If checkpoint doesn't contain syllable sequences
     """
     from keypoint_moseq import load_checkpoint
+
+    from .plotting.viz_utils import MIN_FREQUENCY
 
     checkpoint_path = Path(checkpoint_file)
     if not checkpoint_path.exists():
@@ -878,60 +884,43 @@ def compute_syllable_metrics(
                 "Expected dict or numpy array."
             )
 
-    # Compute durations for all syllables across all videos
+    # Compute durations and count instances per syllable across all videos
+    # (instance = one contiguous segment of the same syllable ID)
     all_durations = []
-
-    # Track unique syllable IDs (only needed for counting unique syllables)
-    unique_syllable_ids = set()
+    syllable_instance_counts = {}
 
     for video_key, z in z_sequences.items():
-        # Convert to numpy array if needed
         z_array = np.array(z).flatten()
-
         if len(z_array) == 0:
             continue
 
-        # Find syllable boundaries (where syllable changes)
-        if len(z_array) > 1:
-            # Find transitions between syllables
-            # np.diff finds where consecutive elements differ
-            # +1 because diff returns indices of the first element of each pair
-            boundaries = np.where(np.diff(z_array) != 0)[0] + 1
+        # Find segment boundaries — works for all lengths:
+        # len=1 → diff is empty → no boundaries → single segment of length 1
+        # len>1, uniform → diff is all zeros → no boundaries → single segment
+        # len>1, varied → normal case with multiple segments
+        boundaries = np.where(np.diff(z_array) != 0)[0] + 1
+        segment_starts = np.concatenate([[0], boundaries])
+        segment_ends = np.concatenate([boundaries, [len(z_array)]])
 
-            if len(boundaries) > 0:
-                # Compute durations between boundaries
-                # segment_starts: [0, boundary1, boundary2, ...]
-                # segment_ends: [boundary1, boundary2, ..., len(z_array)]
-                segment_starts = np.concatenate([[0], boundaries])
-                segment_ends = np.concatenate([boundaries, [len(z_array)]])
-                durations = segment_ends - segment_starts
+        all_durations.extend((segment_ends - segment_starts).tolist())
+        for sid in z_array[segment_starts].astype(int):
+            syllable_instance_counts[sid] = syllable_instance_counts.get(sid, 0) + 1
 
-                # Track unique syllable IDs
-                unique_syllable_ids.update(z_array[segment_starts].astype(int))
-
-                all_durations.extend(durations.tolist())
-            else:
-                # Single syllable for entire video (no transitions)
-                syllable_id = int(z_array[0])
-                unique_syllable_ids.add(syllable_id)
-                duration = int(len(z_array))
-                all_durations.append(duration)
-        else:
-            # Single frame
-            syllable_id = int(z_array[0])
-            unique_syllable_ids.add(syllable_id)
-            all_durations.append(1)
-
-    if len(all_durations) == 0:
+    if not all_durations:
         raise ValueError("No syllable durations could be computed from checkpoint")
-
-    if len(unique_syllable_ids) == 0:
+    if not syllable_instance_counts:
         raise ValueError("No syllables found in checkpoint")
 
     all_durations = np.array(all_durations, dtype=float)
 
-    # Compute essential statistics
-    num_unique_syllables = len(unique_syllable_ids)
+    # Filter syllables by frequency — matches get_frequencies(runlength=True)
+    # from jax_moseq and the MIN_FREQUENCY threshold used in Weinreb et al. 2024
+    total_instances = sum(syllable_instance_counts.values())
+    num_unique_syllables = sum(
+        1
+        for count in syllable_instance_counts.values()
+        if count / total_instances >= MIN_FREQUENCY
+    )
     median_duration_frames = float(np.median(all_durations))
     median_duration_ms = (median_duration_frames / fps) * 1000.0
 

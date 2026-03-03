@@ -3,6 +3,11 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.5] - 2026-03-03
+
++ Fix - `compute_syllable_metrics()` now applies frequency filtering (MIN_FREQUENCY = 0.5%) when counting syllables, matching the convention in Weinreb et al. 2024. Previously, `num_syllables` counted all unique syllable IDs (always ~100 with `num_states=100`), ignoring rare states. Now only syllables whose instance frequency >= 0.5% of total instances are counted, consistent with `get_frequencies(runlength=True)` from jax-moseq and the filtering already used in `MotionSequence` and `TrajectoryPlot`.
++ Update - Refactor `compute_syllable_metrics()` loop to a single code path — `np.diff` handles all cases (single frame, uniform sequence, normal) without branching.
+
 ## [1.3.4] - 2026-03-03
 
 + Fix - Normalize `BodyParts` blob fields (`anterior_bodyparts`, `posterior_bodyparts`, `use_bodyparts`) at all fetch sites. When inserted via the dashboard (dash-datajoint-components), blob attributes are stored as string representations (e.g. `"['nose', 'head', 'tail_base']"`) instead of native Python lists, breaking downstream `set()` and `.index()` calls in `PreProcessing`, `Inference`, `TrajectoryPlot`, etc. Added `BodyParts.normalize_bodyparts_blob()` static method and applied it at all 8 fetch sites across `moseq_train`, `moseq_infer`, and `moseq_report`.
