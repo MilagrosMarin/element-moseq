@@ -328,3 +328,81 @@ class TestNumpyArrayHandling:
         # Should be iterable
         assert hasattr(bodyparts["anterior_bodyparts"], "__iter__")
         assert hasattr(bodyparts["use_bodyparts"], "__iter__")
+
+
+# =============================================================================
+# NORMALIZE BODYPARTS BLOB TESTS
+# =============================================================================
+
+
+class TestNormalizeBodypartsBlob:
+    """Test BodyParts.normalize_bodyparts_blob static method."""
+
+    @pytest.fixture
+    def normalize(self):
+        from element_moseq.moseq_train import BodyParts
+
+        return BodyParts.normalize_bodyparts_blob
+
+    def test_native_list_passthrough(self, normalize):
+        """Native Python list passes through unchanged."""
+        value = ["nose", "head", "tail_base"]
+        result = normalize(value)
+        assert result == ["nose", "head", "tail_base"]
+        assert isinstance(result, list)
+
+    def test_string_list_representation(self, normalize):
+        """String representation of a list is parsed correctly."""
+        value = "['nose', 'head', 'tail_base']"
+        result = normalize(value)
+        assert result == ["nose", "head", "tail_base"]
+        assert isinstance(result, list)
+
+    def test_string_list_double_quotes(self, normalize):
+        """String list with double-quoted items is parsed correctly."""
+        value = '["nose", "head", "tail_base"]'
+        result = normalize(value)
+        assert result == ["nose", "head", "tail_base"]
+
+    def test_comma_separated_string(self, normalize):
+        """Comma-separated string (no brackets) is split correctly."""
+        value = "nose, head, tail_base"
+        result = normalize(value)
+        assert result == ["nose", "head", "tail_base"]
+
+    def test_tuple_to_list(self, normalize):
+        """Tuple is converted to list."""
+        value = ("nose", "head", "tail_base")
+        result = normalize(value)
+        assert result == ["nose", "head", "tail_base"]
+        assert isinstance(result, list)
+
+    def test_set_to_list(self, normalize):
+        """Set is converted to list."""
+        value = {"nose", "head"}
+        result = normalize(value)
+        assert isinstance(result, list)
+        assert set(result) == {"nose", "head"}
+
+    def test_empty_string(self, normalize):
+        """Empty string returns empty list."""
+        result = normalize("")
+        assert result == []
+
+    def test_single_item_string_list(self, normalize):
+        """Single-item string list is parsed correctly."""
+        value = "['nose']"
+        result = normalize(value)
+        assert result == ["nose"]
+
+    def test_string_tuple_representation(self, normalize):
+        """String representation of a tuple is parsed correctly."""
+        value = "('nose', 'head')"
+        result = normalize(value)
+        assert result == ["nose", "head"]
+
+    def test_numpy_array_passthrough(self, normalize):
+        """Numpy array passes through unchanged (not str/tuple/set)."""
+        value = np.array(["nose", "head", "tail_base"])
+        result = normalize(value)
+        assert list(result) == ["nose", "head", "tail_base"]

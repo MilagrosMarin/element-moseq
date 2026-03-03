@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.4] - 2026-03-03
+
++ Fix - Normalize `BodyParts` blob fields (`anterior_bodyparts`, `posterior_bodyparts`, `use_bodyparts`) at all fetch sites. When inserted via the dashboard (dash-datajoint-components), blob attributes are stored as string representations (e.g. `"['nose', 'head', 'tail_base']"`) instead of native Python lists, breaking downstream `set()` and `.index()` calls in `PreProcessing`, `Inference`, `TrajectoryPlot`, etc. Added `BodyParts.normalize_bodyparts_blob()` static method and applied it at all 8 fetch sites across `moseq_train`, `moseq_infer`, and `moseq_report`.
+
 ## [1.3.3] - 2026-02-20
 
 + Fix - `FullFit.make_compute` was not applying `full_kappa` to the model hyperparameters. The PreFit model (with `pre_kappa` baked in) was loaded but `update_hypparams(model, kappa=full_kappa)` was never called, causing all FullFit models to train with `pre_kappa` regardless of the `full_kappa` value in `FullFitTask`. This resulted in identical QA metrics and model scores across different kappa values. Introduced in v1.3.0 when `find_prefit_model`/`initialize_model_for_fitting` were replaced with `load_prefit_model`.

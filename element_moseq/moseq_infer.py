@@ -267,6 +267,7 @@ class Inference(dj.Computed):
             moseq_train.PCAFit.File & model_key & 'file_name="pca.p"'
         ).fetch1("file_path")
         use_bodyparts = (moseq_train.BodyParts & model_key).fetch1("use_bodyparts")
+        use_bodyparts = moseq_train.BodyParts.normalize_bodyparts_blob(use_bodyparts)
 
         return (
             keypointset_dir,

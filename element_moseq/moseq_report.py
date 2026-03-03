@@ -129,6 +129,7 @@ class BehavioralSummary(dj.Computed):
         )
         coordinates = (moseq_train.PreProcessing & model_key).fetch1("coordinates")
         use_bodyparts = (moseq_train.BodyParts & model_key).fetch1("use_bodyparts")
+        use_bodyparts = moseq_train.BodyParts.normalize_bodyparts_blob(use_bodyparts)
         fps = (moseq_train.PreProcessing & model_key).fetch1("average_frame_rate")
 
         plot_similarity_dendrogram(
@@ -214,6 +215,7 @@ class TrajectoryPlot(dj.Computed):
             "KEY"
         )
         use_bodyparts = (moseq_train.BodyParts & model_key).fetch1("use_bodyparts")
+        use_bodyparts = moseq_train.BodyParts.normalize_bodyparts_blob(use_bodyparts)
         kpms_dj_config_path = (moseq_train.FullFit.ConfigFile & model_key).fetch1(
             "config_file"
         )

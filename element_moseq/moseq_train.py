@@ -205,6 +205,36 @@ class BodyParts(dj.Manual):
     bodyparts_desc=''           : varchar(1000) # Optional. User-entered description
     """
 
+    @staticmethod
+    def normalize_bodyparts_blob(value):
+        """Normalize a blob value that may have been inserted as a string (e.g. from dashboard).
+
+        When blob-type attributes are inserted via dash-datajoint-components,
+        they arrive as string representations (e.g. "['nose', 'head', 'tail_base']")
+        instead of native Python lists. This method converts them back.
+
+        Args:
+            value: The blob value — may be a list, tuple, set, or string representation thereof.
+
+        Returns:
+            list: The normalized list of bodypart names.
+        """
+        if isinstance(value, str):
+            import ast
+
+            try:
+                parsed = ast.literal_eval(value)
+                if isinstance(parsed, (list, tuple, set)):
+                    return list(parsed)
+            except (ValueError, SyntaxError):
+                pass
+            # Fallback: comma-separated string
+            items = [s.strip().strip("[]'\"") for s in value.split(",")]
+            return [item for item in items if item]
+        if isinstance(value, (tuple, set)):
+            return list(value)
+        return value
+
 
 @schema
 class PCATask(dj.Manual):
@@ -314,6 +344,9 @@ class PreProcessing(dj.Computed):
             "posterior_bodyparts",
             "use_bodyparts",
         )
+        anterior_bodyparts = BodyParts.normalize_bodyparts_blob(anterior_bodyparts)
+        posterior_bodyparts = BodyParts.normalize_bodyparts_blob(posterior_bodyparts)
+        use_bodyparts = BodyParts.normalize_bodyparts_blob(use_bodyparts)
         pose_estimation_method, kpset_dir = (KeypointSet & key).fetch1(
             "pose_estimation_method", "kpset_dir"
         )
@@ -652,6 +685,7 @@ class PreProcessingQA(dj.Computed):
         Fetch required data for QA processing from database tables.
         """
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        use_bodyparts = BodyParts.normalize_bodyparts_blob(use_bodyparts)
         coordinates = (PreProcessing & key).fetch1("coordinates")
         kpms_project_output_dir = (PCATask & key).fetch1("kpms_project_output_dir")
         kpms_project_output_dir = find_full_path(
@@ -867,6 +901,7 @@ class PCAFit(dj.Computed):
             Path(get_kpms_processed_data_dir()) / kpms_project_output_dir
         )
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        use_bodyparts = BodyParts.normalize_bodyparts_blob(use_bodyparts)
         coordinates, confidences = (PreProcessing & key).fetch1(
             "coordinates", "confidences"
         )
@@ -1179,6 +1214,7 @@ class PreFit(dj.Computed):
 
         pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        use_bodyparts = BodyParts.normalize_bodyparts_blob(use_bodyparts)
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
         # Convert numpy types to Python native types for referential integrity
@@ -1604,6 +1640,7 @@ class FullFit(dj.Computed):
 
         pca_path = (PCAFit.File & key & 'file_name="pca.p"').fetch1("file_path")
         use_bodyparts = (BodyParts & key).fetch1("use_bodyparts")
+        use_bodyparts = BodyParts.normalize_bodyparts_blob(use_bodyparts)
         average_frame_rate = (PreProcessing & key).fetch1("average_frame_rate")
 
         # latent_dim is inherited from PreFit through FK chain
