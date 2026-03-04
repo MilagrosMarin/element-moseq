@@ -846,7 +846,7 @@ def compute_syllable_metrics(
     """
     from keypoint_moseq import load_checkpoint
 
-    from .plotting.viz_utils import MIN_FREQUENCY
+    from element_moseq.plotting.viz_utils import MIN_FREQUENCY
 
     checkpoint_path = Path(checkpoint_file)
     if not checkpoint_path.exists():
