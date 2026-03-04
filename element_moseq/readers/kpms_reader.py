@@ -818,18 +818,69 @@ def load_prefit_model(pre_model_path: Union[str, Path]) -> Any:
     return model
 
 
+def _extract_masked_z_sequences(z_raw, mask):
+    """Extract per-video z sequences from checkpoint, applying the data mask.
+
+    Checkpoints store z as a 2D padded array (N_videos, max_T). Videos shorter
+    than max_T have random z values at padded positions (sampled from the prior
+    during Gibbs sampling). The mask excludes these spurious frames.
+
+    Args:
+        z_raw: Syllable state array from model["states"]["z"]. Can be a 2D
+            numpy array (N_videos, max_T), a 1D array, or a dict of arrays.
+        mask: Data mask array from data["mask"], or None.
+
+    Returns:
+        dict: Mapping of video keys to 1D z arrays (valid frames only).
+
+    Raises:
+        ValueError: If z_raw is empty or has an unsupported format.
+    """
+    if isinstance(z_raw, np.ndarray) and z_raw.ndim == 2:
+        if z_raw.size == 0:
+            raise ValueError("No syllable sequences found in checkpoint")
+        if mask is not None:
+            mask_arr = np.array(mask)
+            # Align mask to z time dimension (mask may have extra leading frames)
+            mask_aligned = mask_arr[:, -z_raw.shape[1] :]
+            z_sequences = {}
+            for i in range(z_raw.shape[0]):
+                valid = mask_aligned[i] > 0
+                if valid.any():
+                    z_sequences[f"video_{i}"] = z_raw[i][valid]
+            return z_sequences
+        # No mask — split rows as individual videos (still better than flatten)
+        return {f"video_{i}": z_raw[i] for i in range(z_raw.shape[0])}
+
+    if isinstance(z_raw, dict):
+        return z_raw
+
+    if isinstance(z_raw, np.ndarray):
+        if z_raw.size == 0:
+            raise ValueError("No syllable sequences found in checkpoint")
+        return {"video_0": z_raw.flatten()}
+
+    arr = np.array(z_raw)
+    if arr.size == 0:
+        raise ValueError("No syllable sequences found in checkpoint")
+    return {"video_0": arr.flatten()}
+
+
 def compute_syllable_metrics(
     checkpoint_file: Union[str, os.PathLike], fps: float
 ) -> Dict[str, Any]:
     """Compute syllable quality metrics from checkpoint file.
 
-    This function extracts syllable sequences from a checkpoint file and computes
-    aggregate statistics about syllable durations, which are useful for evaluating
-    model quality and determining appropriate kappa values.
+    Extracts syllable sequences from a checkpoint and computes aggregate
+    statistics about syllable durations for evaluating model quality and
+    determining appropriate kappa values.
 
-    Syllable counting applies frequency filtering (MIN_FREQUENCY = 0.5%) to match
-    the convention in Weinreb et al. 2024 — rare syllables below the threshold are
-    excluded from the count.
+    The data mask is applied to exclude padding frames whose z values are
+    random (sampled from the prior during Gibbs sampling). Without masking,
+    spurious short segments corrupt the median duration statistic.
+
+    Syllable counting applies frequency filtering (MIN_FREQUENCY = 0.5%) to
+    match the convention in Weinreb et al. 2024.
 
     Args:
         checkpoint_file: Path to checkpoint.h5 file
@@ -838,7 +889,7 @@ def compute_syllable_metrics(
     Returns:
         Dictionary with essential syllable quality metrics:
             - num_syllables: Number of syllables exceeding MIN_FREQUENCY threshold
-            - median_syllable_duration_ms: Median duration in milliseconds (KEY METRIC - target: 400ms)
+            - median_syllable_duration_ms: Median duration in milliseconds
 
     Raises:
         FileNotFoundError: If checkpoint file doesn't exist
@@ -852,40 +903,20 @@ def compute_syllable_metrics(
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_file}")
 
-    # Load checkpoint
     model, data, _, _ = load_checkpoint(path=str(checkpoint_path))
 
-    # Extract syllable sequences (z) from all videos
     if "states" not in model or "z" not in model["states"]:
         raise ValueError(
             "Checkpoint does not contain syllable sequences (model['states']['z'])"
         )
 
-    z_sequences = model["states"]["z"]
+    mask = data.get("mask", None) if isinstance(data, dict) else None
+    z_sequences = _extract_masked_z_sequences(model["states"]["z"], mask)
 
-    # Check if z_sequences is empty
-    # Handle both dict and array cases
-    if isinstance(z_sequences, dict):
-        if len(z_sequences) == 0:
-            raise ValueError("No syllable sequences found in checkpoint")
-    elif isinstance(z_sequences, np.ndarray):
-        if z_sequences.size == 0:
-            raise ValueError("No syllable sequences found in checkpoint")
-        # Convert single array to dict format for consistency
-        z_sequences = {"video_0": z_sequences}
-    else:
-        # Try to get length, if that fails, it's probably empty
-        try:
-            if len(z_sequences) == 0:
-                raise ValueError("No syllable sequences found in checkpoint")
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"Unexpected format for z_sequences: {type(z_sequences)}. "
-                "Expected dict or numpy array."
-            )
+    if not z_sequences:
+        raise ValueError("No valid syllable sequences found after masking")
 
     # Compute durations and count instances per syllable across all videos
-    # (instance = one contiguous segment of the same syllable ID)
     all_durations = []
     syllable_instance_counts = {}
 
@@ -894,10 +925,6 @@ def compute_syllable_metrics(
         if len(z_array) == 0:
             continue
 
-        # Find segment boundaries — works for all lengths:
-        # len=1 → diff is empty → no boundaries → single segment of length 1
-        # len>1, uniform → diff is all zeros → no boundaries → single segment
-        # len>1, varied → normal case with multiple segments
         boundaries = np.where(np.diff(z_array) != 0)[0] + 1
         segment_starts = np.concatenate([[0], boundaries])
         segment_ends = np.concatenate([boundaries, [len(z_array)]])
@@ -908,13 +935,10 @@ def compute_syllable_metrics(
 
     if not all_durations:
         raise ValueError("No syllable durations could be computed from checkpoint")
-    if not syllable_instance_counts:
-        raise ValueError("No syllables found in checkpoint")
 
     all_durations = np.array(all_durations, dtype=float)
 
     # Filter syllables by frequency — matches get_frequencies(runlength=True)
-    # from jax_moseq and the MIN_FREQUENCY threshold used in Weinreb et al. 2024
     total_instances = sum(syllable_instance_counts.values())
     num_unique_syllables = sum(
         1
@@ -924,9 +948,7 @@ def compute_syllable_metrics(
     median_duration_frames = float(np.median(all_durations))
     median_duration_ms = (median_duration_frames / fps) * 1000.0
 
-    aggregate_metrics = {
+    return {
         "num_syllables": num_unique_syllables,
         "median_syllable_duration_ms": median_duration_ms,
     }
-
-    return aggregate_metrics

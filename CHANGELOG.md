@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.6] - 2026-03-04
+
++ Fix - `compute_syllable_metrics()` now applies the data mask when computing syllable durations from checkpoints. Checkpoints store z as a 2D padded array (N_videos, max_T); z values at padded positions are random (sampled from the prior during Gibbs sampling). Without masking, these spurious short segments corrupted the median duration statistic — e.g. 67ms instead of 300ms for datasets with unequal video lengths (~40% padding). Affects `PreFitQA` and `FullFitQA`.
+
 ## [1.3.5] - 2026-03-03
 
 + Fix - `compute_syllable_metrics()` now applies frequency filtering (MIN_FREQUENCY = 0.5%) when counting syllables, matching the convention in Weinreb et al. 2024. Previously, `num_syllables` counted all unique syllable IDs (always ~100 with `num_states=100`), ignoring rare states. Now only syllables whose instance frequency >= 0.5% of total instances are counted, consistent with `get_frequencies(runlength=True)` from jax-moseq and the filtering already used in `MotionSequence` and `TrajectoryPlot`.
