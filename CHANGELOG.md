@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.7] - 2026-03-05
+
++ Fix - `update_kpms_dj_config()` and `dj_generate_config()` now route flat hyperparameter kwargs (`kappa`, `latent_dim`, `sigmasq_loc`, etc.) into their nested config dicts (`trans_hypparams`, `ar_hypparams`, `cen_hypparams`). Previously, these were added as top-level keys only; keypoint-moseq's `init_model()` reads the nested dicts and ignores flat `**kwargs`. This caused all models to be initialized with default hyperparameters (`latent_dim=10`, `sigmasq_loc=0.5`) regardless of the values specified in `PreFitTask` or `FullFitTask`. Affects `PreFit`, `FullFit`, and `Inference`.
+
 ## [1.3.6] - 2026-03-04
 
 + Fix - `compute_syllable_metrics()` now applies the data mask when computing syllable durations from checkpoints. Checkpoints store z as a 2D padded array (N_videos, max_T); z values at padded positions are random (sampled from the prior during Gibbs sampling). Without masking, these spurious short segments corrupted the median duration statistic — e.g. 67ms instead of 300ms for datasets with unequal video lengths (~40% padding). Affects `PreFitQA` and `FullFitQA`.

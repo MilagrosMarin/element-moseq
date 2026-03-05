@@ -18,6 +18,32 @@ CONFIG_FILENAMES = [
     "config.yaml",
 ]  # Used for both pose estimation and KPMS base configs
 
+# Mapping of flat hyperparameter names to their nested config dict keys.
+# Mirrors keypoint-moseq's generate_config() structure (io.py:62-88).
+_HYPERPARAM_ROUTING = {
+    "trans_hypparams": {"num_states", "gamma", "alpha", "kappa"},
+    "ar_hypparams": {"latent_dim", "nlags", "S_0_scale", "K_0_scale"},
+    "obs_hypparams": {"sigmasq_0", "sigmasq_C", "nu_sigma", "nu_s"},
+    "cen_hypparams": {"sigmasq_loc"},
+    "error_estimator": {"slope", "intercept"},
+}
+
+
+def _route_hypparams_to_nested(cfg_dict, kwargs):
+    """Route flat hyperparameter kwargs into their nested config dicts.
+
+    keypoint-moseq stores hyperparameters in nested dicts (e.g.
+    ``trans_hypparams: {kappa: 1e6}``), but callers pass them as flat kwargs
+    (e.g. ``kappa=1e6``).  ``init_model()`` only reads the nested dicts —
+    flat keys land in unused ``**kwargs``.  This helper syncs the flat values
+    into the nested dicts so ``init_model`` sees them.
+    """
+    for group, keys in _HYPERPARAM_ROUTING.items():
+        if group in cfg_dict and isinstance(cfg_dict[group], dict):
+            for key in keys:
+                if key in kwargs:
+                    cfg_dict[group][key] = kwargs[key]
+
 
 def _pose_estimation_config_path(kpset_dir: Union[str, os.PathLike]) -> str:
     """
@@ -171,6 +197,7 @@ def dj_generate_config(kpms_project_dir: str, **kwargs) -> tuple:
             kwargs["posterior_bodyparts"] = posterior
 
     kpms_dj_config_dict.update(kwargs)
+    _route_hypparams_to_nested(kpms_dj_config_dict, kwargs)
 
     if "skeleton" not in kpms_dj_config_dict:
         kpms_dj_config_dict["skeleton"] = []
@@ -322,6 +349,7 @@ def update_kpms_dj_config(
                 ]
 
         cfg_dict.update(kwargs)
+        _route_hypparams_to_nested(cfg_dict, kwargs)
 
         with open(kpms_dj_cfg_path, "w") as f:
             yaml.safe_dump(
@@ -356,6 +384,7 @@ def update_kpms_dj_config(
                 ]
 
         cfg_dict.update(kwargs)
+        _route_hypparams_to_nested(cfg_dict, kwargs)
 
         with open(config_path, "w") as f:
             yaml.safe_dump(
@@ -385,6 +414,7 @@ def update_kpms_dj_config(
                 ]
 
         cfg_dict.update(kwargs)
+        _route_hypparams_to_nested(cfg_dict, kwargs)
 
     return cfg_dict
 
