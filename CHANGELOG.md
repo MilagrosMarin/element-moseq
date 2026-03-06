@@ -3,6 +3,10 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.8] - 2026-03-06
+
++ Fix - `PreProcessing.make_compute()` now passes `overwrite=True` to `setup_project()`. When `PCATask.kpms_project_output_dir` is auto-generated (empty at insertion), `make_fetch` creates the directory via `infer_output_dir(mkdir=True)` before `make_compute` runs. `setup_project()` then sees the existing (empty) directory and silently returns without generating `config.yml`, causing downstream `dj_generate_config()` to raise `FileNotFoundError`. This only affected auto-generated output directory names (kpset 1-3 had manually pre-filled names). With `overwrite=True`, `setup_project()` always generates `config.yml` regardless of whether the directory already exists.
+
 ## [1.3.7] - 2026-03-05
 
 + Fix - `update_kpms_dj_config()` and `dj_generate_config()` now route flat hyperparameter kwargs (`kappa`, `latent_dim`, `sigmasq_loc`, etc.) into their nested config dicts (`trans_hypparams`, `ar_hypparams`, `cen_hypparams`). Previously, these were added as top-level keys only; keypoint-moseq's `init_model()` reads the nested dicts and ignores flat `**kwargs`. This caused all models to be initialized with default hyperparameters (`latent_dim=10`, `sigmasq_loc=0.5`) regardless of the values specified in `PreFitTask` or `FullFitTask`. Affects `PreFit`, `FullFit`, and `Inference`.

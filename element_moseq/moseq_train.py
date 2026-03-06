@@ -467,6 +467,7 @@ class PreProcessing(dj.Computed):
                 setup_project(
                     project_dir=kpms_project_output_dir.as_posix(),
                     deeplabcut_config=pose_estimation_config_file.as_posix(),
+                    overwrite=True,
                 )
             else:
                 raise NotImplementedError(
