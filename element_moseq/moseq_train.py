@@ -677,8 +677,8 @@ class PreProcessingQA(dj.Computed):
         -> master
         video_id    : varchar(255)
         ---
-        outlier_plot       : attach # QA visualization showing detected outliers and interpolation.
-        overlay_video      : attach  # Overlay keypoints on the video attachment.
+        outlier_plot       : filepath@moseq-train-processed  # QA visualization showing detected outliers and interpolation.
+        overlay_video      : filepath@moseq-train-processed  # Overlay keypoints on the video.
         """
 
     def make_fetch(self, key):

@@ -3,6 +3,26 @@
 Observes [Semantic Versioning](https://semver.org/spec/v2.0.0.html) standard and
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) convention.
 
+## [1.3.9] - 2026-09-08
+
++ Fix - `PreProcessingQA.VideoQA.outlier_plot` and `.overlay_video` changed from `attach` to
+  `filepath@moseq-train-processed`. As `attach` without a store, the file bytes were written into
+  MySQL longblobs by `make_insert` — measured at ~7 MB per row, so a 32-video keypoint set wrote
+  ~224 MB inside a single transaction. Together with the `coordinates` blob that `make_fetch`
+  refetches inside the same transaction, this exceeded the server's `net_read_timeout` and the
+  connection was dropped mid-transaction, raising `LostConnectionError`. Worker cleanup treats that
+  error as transient and deletes the job, so the step retried indefinitely. `make_compute` already
+  writes both files under `kpms_project_output_dir`, which is the `moseq-train-processed` store, so
+  `attach` was transmitting the same bytes a second time; `filepath@` records a path and checksum
+  instead. `make_insert` is unchanged — it already passes absolute paths, matching `PCAFit.File`.
+  `nan_breakdown` stays as `attach` because `plot_nan_breakdown()` writes to a temporary file
+  outside the store.
+
+  Note for the DataJoint 2.x migration: these attributes should become `object@`.
+
+  This changes the attribute type on a populated table, so `PreProcessingQA` and `VideoQA` must be
+  dropped and recomputed. The output is derived, so nothing is lost.
+
 ## [1.3.8] - 2026-03-06
 
 + Fix - `PreProcessing.make_compute()` now passes `overwrite=True` to `setup_project()`. When `PCATask.kpms_project_output_dir` is auto-generated (empty at insertion), `make_fetch` creates the directory via `infer_output_dir(mkdir=True)` before `make_compute` runs. `setup_project()` then sees the existing (empty) directory and silently returns without generating `config.yml`, causing downstream `dj_generate_config()` to raise `FileNotFoundError`. This only affected auto-generated output directory names (kpset 1-3 had manually pre-filled names). With `overwrite=True`, `setup_project()` always generates `config.yml` regardless of whether the directory already exists.
