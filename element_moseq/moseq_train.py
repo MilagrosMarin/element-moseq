@@ -537,19 +537,23 @@ class PreProcessing(dj.Computed):
             find_full_path,
         )
 
+        # Sanity check: validate against the unfiltered lists so a misconfigured
+        # bodypart is reported here; checking the filtered result below is a
+        # no-op since it is a subset of use_bodyparts by construction.
+        missing_anterior = set(anterior_bodyparts) - set(use_bodyparts)
+        if missing_anterior:
+            raise ValueError(
+                f"anterior_bodyparts contains elements not in use_bodyparts: {missing_anterior}"
+            )
+        missing_posterior = set(posterior_bodyparts) - set(use_bodyparts)
+        if missing_posterior:
+            raise ValueError(
+                f"posterior_bodyparts contains elements not in use_bodyparts: {missing_posterior}"
+            )
+
         # Filter anterior/posterior to only include those present in use_bodyparts
         filtered_anterior = [bp for bp in anterior_bodyparts if bp in use_bodyparts]
         filtered_posterior = [bp for bp in posterior_bodyparts if bp in use_bodyparts]
-
-        # Sanity check: Ensure all filtered anterior/posterior bodyparts are in use_bodyparts
-        if not set(filtered_anterior).issubset(set(use_bodyparts)):
-            raise ValueError(
-                f"Filtered anterior bodyparts contain elements not in use_bodyparts: {set(filtered_anterior) - set(use_bodyparts)}"
-            )
-        if not set(filtered_posterior).issubset(set(use_bodyparts)):
-            raise ValueError(
-                f"Filtered posterior bodyparts contain elements not in use_bodyparts: {set(filtered_posterior) - set(use_bodyparts)}"
-            )
 
         # Generate KPMS DJ config file with all new parameters
         (
