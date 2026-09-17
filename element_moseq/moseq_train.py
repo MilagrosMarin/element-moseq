@@ -740,7 +740,10 @@ class PreProcessingQA(dj.Computed):
 
         execution_time = datetime.now(timezone.utc)
 
-        fps_lookup = {v["video_id"]: float(v["frame_rate"]) for v in fps_lookup}
+        # PreProcessing.Video.video_id is varchar(255) while keypoint_videofile_metadata's
+        # is used as int below; both sides of this lookup are normalized to str since
+        # they are the same value from two different tables.
+        fps_lookup = {str(v["video_id"]): float(v["frame_rate"]) for v in fps_lookup}
 
         kpms_dj_config_dict = kpms_reader.load_kpms_dj_config(
             config_path=kpms_dj_config_path,
@@ -784,7 +787,7 @@ class PreProcessingQA(dj.Computed):
             if not overlay_video_path.exists():
                 # Calculate frames for video sample duration
                 frame_rate = fps_lookup.get(
-                    video_id, 30.0
+                    str(video_id), 30.0
                 )  # Default to 30fps if not found
                 frames_for_dur = int(frame_rate * VIDEO_SAMPLE_DURATION_SECONDS)
 
